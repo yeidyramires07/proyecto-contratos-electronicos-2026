@@ -99,7 +99,7 @@ else:
   st.divider()
 
   # --- 3. TABLAS DE RESUMEN Y AGREGACIONES ---
-  st.subheader("📋 Tablas de Resultados y Agregaciones")
+  st.subheader("Tablas de Resultados y Agregaciones")
 
   # Tabla 1: Resumen por Entidad
   if "nombre_entidad" in df_f.columns:
