@@ -7,17 +7,16 @@ st.markdown(
 )
 
 
-# Cargar el CSV de manera eficiente (asegúrate de que 'Medicamentos2.csv' esté en la misma carpeta)
 @st.cache_data
-def cargar_datos():
-  ruta = "C:\Users\Yeidy\OneDrive\Documents\proyecto_medicamentos\SECOP_FINAL_23_COLS.csv"
-  df = pd.read_csv(ruta, low_memory=False)
+def cargar_datos_externos():
+  url_csv = "https://drive.google.com/uc?export=download&id=1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
+  df = pd.read_csv(url_csv, low_memory=False)
   # Convertir la fecha a formato datetime por si se usa en gráficos temporales
   df["fecha_de_firma"] = pd.to_datetime(df["fecha_de_firma"], errors="coerce")
   return df
 
 
-df = cargar_datos()
+df = cargar_datos_externos()
 
 # --- FILTROS EN LA BARRA LATERAL (Opcionales para dinamizar los KPIs) ---
 st.sidebar.header("Filtros del Tablero")
