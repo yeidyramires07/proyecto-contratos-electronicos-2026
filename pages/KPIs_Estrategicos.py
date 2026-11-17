@@ -3,100 +3,125 @@ import streamlit as st
 
 
 @st.cache_data
-def cargar_datos_externos():
-  # URL o ruta de tu dataset
-  url_csv = "https://drive.google.com/uc?export=download&id=1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
+def cargar_y_procesar_datos():
+  # Si usas tu enlace de Google Drive con el ID:
+  file_id = "1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
+  url_csv = f"https://drive.google.com/uc?export=download&id={file_id}"
+
   df = pd.read_csv(url_csv, low_memory=False)
 
-  # Buscar automáticamente una columna de fecha si tiene otro nombre
-  col_fecha = None
-  for col in df.columns:
-    if "fecha" in col.lower() and "firma" in col.lower():
-      col_fecha = col
-      break
-
-  if col_fecha:
-    df["fecha_de_firma"] = pd.to_datetime(df[col_fecha], errors="coerce")
-  else:
-    df["fecha_de_firma"] = pd.NaT  # Si no existe ninguna fecha, evita el error
+  # Limpieza y conversión de la columna numérica principal
+  if "valor_del_contrato" in df.columns:
+    df["valor_del_contrato"] = pd.to_numeric(
+        df["valor_del_contrato"], errors="coerce"
+    ).fillna(0)
 
   return df
 
 
-with st.spinner("Cargando datos del sistema..."):
-  df = cargar_datos_externos()
+# Cargar los datos
+with st.spinner("Procesando los datos y calculando KPIs..."):
+  df = cargar_y_procesar_datos()
 
-st.title("Tablero de KPIs Estratégicos - Contratos")
-st.markdown("Indicadores clave de rendimiento basados en los contratos.")
+st.title("Módulo de KPIs y Tablas de Contratación")
+st.markdown(
+    "Análisis cuantitativo y métricas estratégicas basadas en el volumen"
+    " total de registros."
+)
 
-# --- FILTROS ---
-st.sidebar.header("Filtros del Tablero")
+# --- 1. FILTROS EN LA BARRA LATERAL ---
+st.sidebar.header("Filtros de Datos")
 if "departamento" in df.columns:
-  departamentos_disponibles = sorted(df["departamento"].dropna().unique())
-  dep_seleccionado = st.sidebar.selectbox(
-      "Filtrar por Departamento", ["Todos"] + departamentos_disponibles
+  departamentos = sorted(df["departamento"].dropna().unique())
+  dep_elegido = st.sidebar.selectbox(
+      "Departamento", ["Todos los departamentos"] + departamentos
   )
-  if dep_seleccionado != "Todos":
-    df_filtrado = df[df["departamento"] == dep_seleccionado]
+
+  if dep_elegido != "Todos los departamentos":
+    df_f = df[df["departamento"] == dep_elegido]
   else:
-    df_filtrado = df
+    df_f = df
 else:
-  df_filtrado = df
+    df_f = df
 
-# --- CÁLCULO DE KPIs ---
-valor_total = (
-    df_filtrado["valor_del_contrato"].sum()
-    if "valor_del_contrato" in df_filtrado.columns
+# --- 2. CÁLCULO DE KPIs PRINCIPALES ---
+val_total = (
+    df_f["valor_del_contrato"].sum()
+    if "valor_del_contrato" in df_f.columns
     else 0
 )
-total_contratos = (
-    df_filtrado["id_contrato"].nunique()
-    if "id_contrato" in df_filtrado.columns
-    else len(df_filtrado)
+cant_contratos = (
+    df_f["id_contrato"].nunique()
+    if "id_contrato" in df_f.columns
+    else len(df_f)
 )
-total_entidades = (
-    df_filtrado["nombre_entidad"].nunique()
-    if "nombre_entidad" in df_filtrado.columns
-    else 0
-)
+costo_promedio = val_total / cant_contratos if cant_contratos > 0 else 0
 
-col1, col2, col3 = st.columns(3)
-with col1:
-  st.metric(label="Valor Total Contratado", value=f"${valor_total:,.2f}")
-with col2:
-  st.metric(label="Total de Contratos", value=f"{total_contratos:,}")
-with col3:
-  st.metric(label="Entidades Activas", value=f"{total_entidades:,}")
+# Cálculo del Índice HHI (Concentración de mercado por Entidad)
+if (
+    "nombre_entidad" in df_f.columns
+    and "valor_del_contrato" in df_f.columns
+    and val_total > 0
+):
+  market_share = (
+      df_f.groupby("nombre_entidad")["valor_del_contrato"].sum() / val_total
+  ) * 100
+  hhi_index = (market_share**2).sum()
+else:
+  hhi_index = 0
+
+# --- MOSTRAR TARJETAS DE KPIs ---
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Valor Total Contratado", f"${val_total:,.2f}")
+c2.metric("Total de Contratos", f"{cant_contratos:,}")
+c3.metric("Costo Promedio / Contrato", f"${costo_promedio:,.2f}")
+c4.metric(
+    "Índice HHI (Concentración)",
+    f"{hhi_index:,.1f}",
+    help="Mide la concentración de presupuesto entre entidades.",
+)
 
 st.divider()
 
-# --- GRÁFICOS ---
-st.subheader("Evolución Temporal de Contratos")
-if (
-    "fecha_de_firma" in df_filtrado.columns
-    and not df_filtrado["fecha_de_firma"].isna().all()
-):
-  df_temporal = (
-      df_filtrado.dropna(subset=["fecha_de_firma"])
-      .set_index("fecha_de_firma")
-      .resample("ME")["valor_del_contrato"]
-      .sum()
-  )
-  st.line_chart(df_temporal)
-else:
-  st.info(
-      "No se encontró una columna de fecha válida para mostrar la tendencia"
-      " temporal."
-  )
+# --- 3. TABLAS DE RESUMEN Y ANÁLISIS ---
+st.subheader("Tablas de Resultados y Agregaciones")
 
-st.subheader("Top 5 Entidades con Mayor Contratación")
-if (
-    "nombre_entidad" in df_filtrado.columns
-    and "valor_del_contrato" in df_filtrado.columns
-):
-  top_entidades = (
-      df_filtrado.groupby("nombre_entidad")["valor_del_contrato"]
-      .sum()
-      .nlargest(5)
+# Tabla 1: Resumen por Entidad (Top contratantes)
+if "nombre_entidad" in df_f.columns:
+  st.markdown("### Top Entidades con Mayor Asignación Presupuestal")
+  tabla_entidades = (
+      df_f.groupby("nombre_entidad")
+      .agg(
+          total_contratos=("id_contrato", "count"),
+          valor_acumulado=("valor_del_contrato", "sum"),
+      )
+      .reset_index()
   )
-  st.bar_chart(top_entidades)
+  tabla_entidades = tabla_entidades.sort_values(
+      by="valor_acumulado", ascending=False
+  ).head(10)
+
+  # Formatear valores monetarios para visualización limpia en tabla
+  tabla_entidades["valor_acumulado"] = tabla_entidades[
+      "valor_acumulado"
+  ].apply(lambda x: f"${x:,.2f}")
+  st.dataframe(tabla_entidades, use_container_width=True)
+
+# Tabla 2: Resumen por Tipo de Contrato o Modalidad
+if "tipo_de_contrato" in df_f.columns:
+  st.markdown("### Distribución por Tipo de Contrato")
+  tabla_modalidad = (
+      df_f.groupby("tipo_de_contrato")
+      .agg(
+          cantidad=("id_contrato", "count"),
+          valor_total=("valor_del_contrato", "sum"),
+      )
+      .reset_index()
+  )
+  tabla_modalidad = tabla_modalidad.sort_values(
+      by="valor_total", ascending=False
+  )
+  tabla_modalidad["valor_total"] = tabla_modalidad["valor_total"].apply(
+      lambda x: f"${x:,.2f}"
+  )
+  st.dataframe(tabla_modalidad, use_container_width=True)
