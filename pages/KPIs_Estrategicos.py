@@ -152,7 +152,8 @@ else:
     )
     tabla_objeto = tabla_objeto.sort_values(
         by="valor_total", ascending=False
-    )
+    ).head(10)
+    
     tabla_objeto["valor_total"] = tabla_objeto["valor_total"].apply(
         lambda x: f"${x:,.2f}"
     )
