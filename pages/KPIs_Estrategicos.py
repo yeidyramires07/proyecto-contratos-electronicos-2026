@@ -1,16 +1,24 @@
+import os
+import gdown
 import pandas as pd
 import streamlit as st
 
 
 @st.cache_data
-def cargar_y_procesar_datos():
-  # Si usas tu enlace de Google Drive con el ID:
+def cargar_datos_externos():
+  # ID de tu archivo en Google Drive (el código largo entre /d/ y /view)
   file_id = "1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
-  url_csv = f"https://drive.google.com/uc?export=download&id={file_id}"
+  url = f"https://drive.google.com/uc?id={file_id}"
+  output = "SECOP_FINAL_23_COLS.csv"
 
-  df = pd.read_csv(url_csv, low_memory=False)
+  # Si el archivo no está descargado localmente en el servidor de Streamlit, lo bajamos con gdown
+  if not os.path.exists(output):
+    gdown.download(url, output, quiet=False, fuzzy=True)
 
-  # Limpieza y conversión de la columna numérica principal
+  # Leer el archivo CSV completo
+  df = pd.read_csv(output, low_memory=False)
+
+  # Limpiar y asegurar formato numérico en la columna de valores
   if "valor_del_contrato" in df.columns:
     df["valor_del_contrato"] = pd.to_numeric(
         df["valor_del_contrato"], errors="coerce"
@@ -19,15 +27,20 @@ def cargar_y_procesar_datos():
   return df
 
 
-# Cargar los datos
-with st.spinner("Procesando los datos y calculando KPIs..."):
-  df = cargar_y_procesar_datos()
+# Mostrar un mensaje mientras procesa los 300,000+ registros
+with st.spinner(
+    "Descargando y procesando el dataset completo desde Google Drive..."
+):
+  df = cargar_datos_externos()
 
 st.title("Módulo de KPIs y Tablas de Contratación")
 st.markdown(
     "Análisis cuantitativo y métricas estratégicas basadas en el volumen"
     " total de registros."
 )
+
+# --- DEBUG RÁPIDO (Opcional): Descomenta la siguiente línea si quieres verificar en pantalla qué columnas leyó ---
+# st.write("Columnas detectadas:", df.columns.tolist())
 
 # --- 1. FILTROS EN LA BARRA LATERAL ---
 st.sidebar.header("Filtros de Datos")
@@ -42,7 +55,7 @@ if "departamento" in df.columns:
   else:
     df_f = df
 else:
-    df_f = df
+  df_f = df
 
 # --- 2. CÁLCULO DE KPIs PRINCIPALES ---
 val_total = (
@@ -83,10 +96,10 @@ c4.metric(
 
 st.divider()
 
-# --- 3. TABLAS DE RESUMEN Y ANÁLISIS ---
-st.subheader("Tablas de Resultados y Agregaciones")
+# --- 3. TABLAS DE RESUMEN Y AGREGACIONES ---
+st.subheader("📋 Tablas de Resultados y Agregaciones")
 
-# Tabla 1: Resumen por Entidad (Top contratantes)
+# Tabla 1: Resumen por Entidad
 if "nombre_entidad" in df_f.columns:
   st.markdown("### Top Entidades con Mayor Asignación Presupuestal")
   tabla_entidades = (
@@ -100,14 +113,12 @@ if "nombre_entidad" in df_f.columns:
   tabla_entidades = tabla_entidades.sort_values(
       by="valor_acumulado", ascending=False
   ).head(10)
-
-  # Formatear valores monetarios para visualización limpia en tabla
   tabla_entidades["valor_acumulado"] = tabla_entidades[
       "valor_acumulado"
   ].apply(lambda x: f"${x:,.2f}")
   st.dataframe(tabla_entidades, use_container_width=True)
 
-# Tabla 2: Resumen por Tipo de Contrato o Modalidad
+# Tabla 2: Resumen por Tipo de Contrato
 if "tipo_de_contrato" in df_f.columns:
   st.markdown("### Distribución por Tipo de Contrato")
   tabla_modalidad = (
