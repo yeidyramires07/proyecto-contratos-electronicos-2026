@@ -6,14 +6,14 @@ import streamlit as st
 
 @st.cache_data
 def cargar_datos_externos():
-  # ID de tu archivo en Google Drive (el código largo entre /d/ y /view)
+  # ID de tu archivo en Google Drive
   file_id = "1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
-  url = f"https://drive.google.com/uc?id={file_id}"
   output = "SECOP_FINAL_23_COLS.csv"
 
-  # Si el archivo no está descargado localmente en el servidor de Streamlit, lo bajamos con gdown
+  # Si el archivo no está en el servidor, lo descargamos de forma directa y segura
   if not os.path.exists(output):
-    gdown.download(url, output, quiet=False, fuzzy=True)
+    url = f"https://drive.google.com/uc?id={file_id}"
+    gdown.download(url, output, quiet=False)
 
   # Leer el archivo CSV completo
   df = pd.read_csv(output, low_memory=False)
@@ -25,12 +25,6 @@ def cargar_datos_externos():
     ).fillna(0)
 
   return df
-
-
-# Mostrar un mensaje mientras procesa los 300,000+ registros
-with st.spinner(
-    "Descargando y procesando el dataset completo desde Google Drive..."
-):
   df = cargar_datos_externos()
 
 st.title("Módulo de KPIs y Tablas de Contratación")
