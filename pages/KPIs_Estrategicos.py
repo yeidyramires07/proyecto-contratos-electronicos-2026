@@ -141,11 +141,11 @@ else:
 
     # Tabla 3: Resumen por objeto de contrato
     if "objeto_del_contrato" in  df_f.columns:
-    st.markdown("### Distribución por objeto del contarto")
+    st.markdown("### Distribución por objeto del contrato")
     tabla_objeto = (
         df_f.groupby("objeto_del_contrato")
         .agg(
-            cantidad=("id_contarto", "count"),
+            cantidad=("id_contrato", "count"),
             valor_total=("valor_del_contrato", "sum"),
         )
         .reset_index()
