@@ -138,3 +138,22 @@ else:
         lambda x: f"${x:,.2f}"
     )
     st.dataframe(tabla_modalidad, use_container_width=True)
+
+    # Tabla 3: Resumen por objeto de contrato
+    if "objeto_del_contrato" in  df_f.columns:
+    st.markdown("### Distribución por objeto del contarto")
+    tabla_objeto = (
+        df_f.groupby("objeto_del_contrato")
+        .agg(
+            cantidad=("id_contarto", "count"),
+            valor_total=("valor_del_contrato", "sum"),
+        )
+        .reset_index()
+    )
+    tabla_objeto = tabla_objeto.sort_values(
+        by="valor_total", ascending=False
+    )
+    tabla_objeto["valor_total"] = tabla_objeto["valor_total"].apply(
+        lambda x: f"${x:,.2f}"
+    )
+    st.dataframe(tabla_objeto, use_container_width=True)
