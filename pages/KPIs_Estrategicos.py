@@ -139,8 +139,8 @@ else:
     )
     st.dataframe(tabla_modalidad, use_container_width=True)
 
-    # Tabla 3: Resumen por objeto de contrato
-    if "objeto_del_contrato" in  df_f.columns:
+  # Tabla 3: Resumen por objeto de contrato
+  if "objeto_del_contrato" in  df_f.columns:
     st.markdown("### Distribución por objeto del contrato")
     tabla_objeto = (
         df_f.groupby("objeto_del_contrato")
