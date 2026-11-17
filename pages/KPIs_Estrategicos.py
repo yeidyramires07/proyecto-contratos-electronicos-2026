@@ -1,22 +1,28 @@
 import pandas as pd
 import streamlit as st
 
-st.title("Tablero de KPIs Estratégicos - Contratos")
-st.markdown(
-    "Indicadores clave de rendimiento basados en los datos del sistema."
-)
-
-
+# Función optimizada para descargar el dataset grande desde la nube y guardarlo en caché
 @st.cache_data
 def cargar_datos_externos():
+  # Pega aquí tu enlace de descarga directa (ejemplo de Google Drive o URL pública)
   url_csv = "https://drive.google.com/uc?export=download&id=1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
+
+  # Pandas lee directamente el archivo desde la web sin saturar tu repositorio de GitHub
   df = pd.read_csv(url_csv, low_memory=False)
-  # Convertir la fecha a formato datetime por si se usa en gráficos temporales
   df["fecha_de_firma"] = pd.to_datetime(df["fecha_de_firma"], errors="coerce")
   return df
 
 
-df = cargar_datos_externos()
+# Cargamos los datos
+with st.spinner(
+    "Descargando y procesando el dataset completo desde la nube..."
+):
+  df = cargar_datos_externos()
+
+st.title("Tablero de KPIs Estratégicos - Contratos")
+st.markdown(
+    "Indicadores clave de rendimiento basados en los datos del sistema."
+)
 
 # --- FILTROS EN LA BARRA LATERAL (Opcionales para dinamizar los KPIs) ---
 st.sidebar.header("Filtros del Tablero")
