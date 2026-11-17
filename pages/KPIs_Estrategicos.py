@@ -1,83 +1,81 @@
 import pandas as pd
 import streamlit as st
 
-# Función optimizada para descargar el dataset grande desde la nube y guardarlo en caché
+
 @st.cache_data
 def cargar_datos_externos():
-  # Pega aquí tu enlace de descarga directa (ejemplo de Google Drive o URL pública)
+  # URL o ruta de tu dataset
   url_csv = "https://drive.google.com/uc?export=download&id=1tHzoqaE4xOcr64ZCUTnoChm2owPbqzCH"
-
-  # Pandas lee directamente el archivo desde la web sin saturar tu repositorio de GitHub
   df = pd.read_csv(url_csv, low_memory=False)
-  df["fecha_de_firma"] = pd.to_datetime(df["fecha_de_firma"], errors="coerce")
+
+  # Buscar automáticamente una columna de fecha si tiene otro nombre
+  col_fecha = None
+  for col in df.columns:
+    if "fecha" in col.lower() and "firma" in col.lower():
+      col_fecha = col
+      break
+
+  if col_fecha:
+    df["fecha_de_firma"] = pd.to_datetime(df[col_fecha], errors="coerce")
+  else:
+    df["fecha_de_firma"] = pd.NaT  # Si no existe ninguna fecha, evita el error
+
   return df
 
 
-# Cargamos los datos
-with st.spinner(
-    "Descargando y procesando el dataset completo desde la nube..."
-):
+with st.spinner("Cargando datos del sistema..."):
   df = cargar_datos_externos()
 
 st.title("Tablero de KPIs Estratégicos - Contratos")
-st.markdown(
-    "Indicadores clave de rendimiento basados en los datos del sistema."
-)
+st.markdown("Indicadores clave de rendimiento basados en los contratos.")
 
-# --- FILTROS EN LA BARRA LATERAL (Opcionales para dinamizar los KPIs) ---
+# --- FILTROS ---
 st.sidebar.header("Filtros del Tablero")
-departamentos_disponibles = sorted(df["departamento"].unique())
-dep_seleccionado = st.sidebar.selectbox(
-  "Filtrar por Departamento", ["Todos"] + departamentos_disponibles
-)
-
-# Aplicar filtro
-if dep_seleccionado != "Todos":
-  df_filtrado = df[df["departamento"] == dep_seleccionado]
+if "departamento" in df.columns:
+  departamentos_disponibles = sorted(df["departamento"].dropna().unique())
+  dep_seleccionado = st.sidebar.selectbox(
+      "Filtrar por Departamento", ["Todos"] + departamentos_disponibles
+  )
+  if dep_seleccionado != "Todos":
+    df_filtrado = df[df["departamento"] == dep_seleccionado]
+  else:
+    df_filtrado = df
 else:
   df_filtrado = df
 
-# --- CÁLCULO DE MÉTRICAS (KPIs) CON LOS DATOS REALES ---
-valor_total = df_filtrado["valor_del_contrato"].sum()
-total_contratos = df_filtrado["id_contrato"].nunique()
-total_entidades = df_filtrado["nombre_entidad"].nunique()
+# --- CÁLCULO DE KPIs ---
+valor_total = (
+    df_filtrado["valor_del_contrato"].sum()
+    if "valor_del_contrato" in df_filtrado.columns
+    else 0
+)
+total_contratos = (
+    df_filtrado["id_contrato"].nunique()
+    if "id_contrato" in df_filtrado.columns
+    else len(df_filtrado)
+)
+total_entidades = (
+    df_filtrado["nombre_entidad"].nunique()
+    if "nombre_entidad" in df_filtrado.columns
+    else 0
+)
 
-# Cálculo del Índice HHI (Concentración de mercado por Entidad)
-market_share = (
-    df_filtrado.groupby("nombre_entidad")["valor_del_contrato"].sum()
-    / valor_total
-) * 100
-hhi = (market_share**2).sum()
-
-# --- DISEÑO DE TARJETAS DE MÉTRICAS EN COLUMNAS ---
-col1, col2, col3, col4 = st.columns(4)
-
+col1, col2, col3 = st.columns(3)
 with col1:
   st.metric(label="Valor Total Contratado", value=f"${valor_total:,.2f}")
-
 with col2:
   st.metric(label="Total de Contratos", value=f"{total_contratos:,}")
-
 with col3:
   st.metric(label="Entidades Activas", value=f"{total_entidades:,}")
 
-with col4:
-  st.metric(
-      label="Índice HHI (Concentración)",
-      value=f"{hhi:,.1f}",
-      help=(
-          "Mide la concentración de los contratos entre las entidades/proveedores"
-          " (Valores altos indican mayor concentración)."
-      ),
-  )
-
 st.divider()
 
-# --- ESPACIO PARA GRÁFICOS VISUALES ---
+# --- GRÁFICOS ---
 st.subheader("Evolución Temporal de Contratos")
-
-if "fecha_de_firma" in df_filtrado.columns:
-  # Agrupar por mes para la tendencia temporal
+if (
+    "fecha_de_firma" in df_filtrado.columns
+    and not df_filtrado["fecha_de_firma"].isna().all()
+):
   df_temporal = (
       df_filtrado.dropna(subset=["fecha_de_firma"])
       .set_index("fecha_de_firma")
@@ -86,13 +84,19 @@ if "fecha_de_firma" in df_filtrado.columns:
   )
   st.line_chart(df_temporal)
 else:
-  st.info("No se encontró la columna de fecha para graficar la tendencia.")
+  st.info(
+      "No se encontró una columna de fecha válida para mostrar la tendencia"
+      " temporal."
+  )
 
-# Gráfico adicional: Top entidades con mayor presupuesto contratado
 st.subheader("Top 5 Entidades con Mayor Contratación")
-top_entidades = (
-    df_filtrado.groupby("nombre_entidad")["valor_del_contrato"]
-    .sum()
-    .nlargest(5)
-)
-st.bar_chart(top_entidades)
+if (
+    "nombre_entidad" in df_filtrado.columns
+    and "valor_del_contrato" in df_filtrado.columns
+):
+  top_entidades = (
+      df_filtrado.groupby("nombre_entidad")["valor_del_contrato"]
+      .sum()
+      .nlargest(5)
+  )
+  st.bar_chart(top_entidades)
