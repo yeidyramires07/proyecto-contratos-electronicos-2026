@@ -1,11 +1,15 @@
 import os
+import io
+import re
 import time
+import unicodedata
 import hashlib
 import hmac
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -437,6 +441,329 @@ def leer_suscriptores():
         return []
 
 
+# ----- Módulo de análisis KPI, PCA y K-Means (SECOP II) -----
+
+COLUMNAS_PCA = [
+    "hhi_valor", "hhi_n", "pct_valor_directa", "pct_valor_regimen_esp",
+    "pct_contratos_ops", "pct_valor_pyme", "pct_valor_ene_feb_anual",
+    "pct_valor_nov_dic_anual", "hhi_ordenador", "duracion_mediana_dias",
+    "log_valor_total", "pct_valor_inversion", "tasa_contratos_modificados",
+]
+
+ARCHIVOS_SECOP = [
+    "contratos_preparados.csv",
+    "datos_region_andina.xls", "datos_region_andina.xlsx", "datos_region_andina.csv",
+    "SECOP_15-26.csv", "SECOP_23-26.csv",
+    "SECOP_200K_CON_TODOS_LOS_MEDICAMENTOS.csv",
+]
+
+
+def _normalizar_nombre_columna(nombre):
+    texto = unicodedata.normalize("NFKD", str(nombre))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9]+", "_", texto).strip("_")
+    return texto
+
+
+def _normalizar_columnas_secop(df):
+    out = df.copy()
+    out.columns = [_normalizar_nombre_columna(c) for c in out.columns]
+    # Alias frecuentes entre descargas SECOP y el notebook original.
+    alias = {
+        "nombre_entidad": ["entidad", "nombre_de_la_entidad", "nombre_entidad_norm"],
+        "proveedor_adjudicado": ["proveedor", "nombre_proveedor", "proveedor_adjudicado_norm"],
+        "valor_del_contrato": ["valor_contrato", "valor_contrato_pesos", "valor"],
+        "id_contrato": ["id_del_contrato", "codigo_contrato", "referencia_del_contrato"],
+        "fecha_de_firma": ["fecha_firma", "fecha_de_firma_del_contrato"],
+        "fecha_de_inicio_del_contrato": ["fecha_inicio", "fecha_inicio_del_contrato"],
+        "fecha_de_fin_del_contrato": ["fecha_fin", "fecha_fin_del_contrato"],
+        "modalidad_de_contratacion": ["modalidad_contratacion", "modalidad"],
+        "tipo_de_contrato": ["tipo_contrato"],
+        "es_pyme": ["pyme", "es_mipyme"],
+        "destino_gasto": ["destino_del_gasto"],
+        "estado_contrato": ["estado_del_contrato", "estado"],
+        "n_mero_de_documento_ordenador_del_gasto": [
+            "numero_de_documento_del_ordenador_del_gasto",
+            "numero_documento_ordenador_del_gasto",
+            "documento_ordenador_del_gasto",
+            "n_mero_de_documento_ordenador_del_gasto",
+        ],
+    }
+    for destino, opciones in alias.items():
+        if destino not in out.columns:
+            for opcion in opciones:
+                if opcion in out.columns:
+                    out[destino] = out[opcion]
+                    break
+    # Los archivos preparados por el notebook ya pueden traer entidad_norm.
+    if "nombre_entidad" not in out.columns and "entidad_norm" in out.columns:
+        out["nombre_entidad"] = out["entidad_norm"]
+    if "proveedor_adjudicado" not in out.columns and "proveedor_adjudicado_norm" in out.columns:
+        out["proveedor_adjudicado"] = out["proveedor_adjudicado_norm"]
+    return out
+
+
+# Enlace del CSV de SECOP II almacenado en Google Drive.
+# Comparte el archivo como "Cualquier persona con el enlace" (Lector).
+ENLACE_DATASET_KPI = "https://drive.google.com/file/d/1UoQ-lg3Z_I_14e0Vu__xkLvgBhk9edH0/view?usp=sharing"
+
+
+def extraer_id_google_drive(enlace):
+    """Admite enlaces /file/d/ID, open?id=ID, uc?id=ID o ID directo."""
+    enlace = str(enlace).strip()
+    if not enlace or enlace.startswith("PEGA_AQUI"):
+        raise ValueError("Configura ENLACE_DATASET_KPI con el enlace público del CSV de Google Drive.")
+    coincidencia = re.search(r"/file/d/([a-zA-Z0-9_-]+)", enlace)
+    if coincidencia:
+        return coincidencia.group(1)
+    parametros = urllib.parse.parse_qs(urllib.parse.urlparse(enlace).query)
+    if parametros.get("id"):
+        return parametros["id"][0]
+    if re.fullmatch(r"[a-zA-Z0-9_-]{15,}", enlace):
+        return enlace
+    raise ValueError("El enlace no contiene un ID de archivo válido de Google Drive.")
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cargar_dataset_kpi_drive(enlace):
+    """Descarga exclusivamente el CSV de KPI, sin alterar las otras fuentes del portal."""
+    archivo_id = extraer_id_google_drive(enlace)
+    url = "https://drive.google.com/uc"
+    with requests.Session() as sesion:
+        respuesta = sesion.get(url, params={"export": "download", "id": archivo_id}, timeout=120)
+        respuesta.raise_for_status()
+        # Algunos archivos grandes requieren confirmar la advertencia de Drive.
+        token = next((valor for clave, valor in sesion.cookies.items()
+                      if clave.startswith("download_warning")), None)
+        if token:
+            respuesta = sesion.get(url, params={"export": "download", "id": archivo_id,
+                                              "confirm": token}, timeout=120)
+            respuesta.raise_for_status()
+        contenido = respuesta.content
+        tipo = respuesta.headers.get("Content-Type", "").lower()
+        if not contenido:
+            raise ValueError("Google Drive devolvió un archivo vacío.")
+        if "text/html" in tipo or contenido[:512].lstrip().lower().startswith((b"<!doctype html", b"<html")):
+            raise ValueError("Google Drive devolvió una página HTML en lugar del CSV. Revisa los permisos del archivo y si requiere confirmación de descarga.")
+    ultimo_error = None
+    for codificacion in ("utf-8-sig", "latin-1"):
+        try:
+            datos = pd.read_csv(io.BytesIO(contenido), sep=None, engine="python", encoding=codificacion)
+            if len(datos.columns) < 2:
+                raise ValueError("El CSV no parece tener varias columnas; comprueba el separador y el archivo.")
+            return _normalizar_columnas_secop(datos)
+        except (UnicodeError, pd.errors.ParserError, ValueError) as exc:
+            ultimo_error = exc
+    raise ValueError(f"No se pudo interpretar el CSV descargado: {ultimo_error}")
+
+
+def leer_dataset_secop(archivo):
+    """Lee CSV, Excel o Parquet sin depender de rutas locales de Windows."""
+    nombre = getattr(archivo, "name", str(archivo)).lower()
+    if nombre.endswith(".parquet"):
+        df = pd.read_parquet(archivo)
+    elif nombre.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(archivo)
+    else:
+        try:
+            df = pd.read_csv(archivo, encoding="utf-8-sig", low_memory=False)
+        except UnicodeDecodeError:
+            if hasattr(archivo, "seek"):
+                archivo.seek(0)
+            df = pd.read_csv(archivo, encoding="latin-1", low_memory=False)
+    return _normalizar_columnas_secop(df)
+
+
+def calcular_kpis_secop(datos):
+    """Replica los 13 indicadores usados como variables de entrada del PCA."""
+    df = _normalizar_columnas_secop(datos)
+    requeridas = ["valor_del_contrato", "nombre_entidad", "proveedor_adjudicado"]
+    faltantes = [c for c in requeridas if c not in df.columns]
+    if faltantes:
+        raise ValueError("Faltan columnas necesarias para calcular los KPI: " + ", ".join(faltantes))
+
+    # Completar columnas opcionales: su ausencia se trata como dato no disponible,
+    # no como una razón para detener todo el análisis.
+    opcionales = [
+        "id_contrato", "fecha_de_firma", "fecha_de_inicio_del_contrato",
+        "fecha_de_fin_del_contrato", "modalidad_de_contratacion", "tipo_de_contrato",
+        "es_pyme", "destino_gasto", "estado_contrato",
+        "n_mero_de_documento_ordenador_del_gasto",
+    ]
+    for col in opcionales:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df["valor_del_contrato"] = pd.to_numeric(df["valor_del_contrato"], errors="coerce")
+    for col in ["fecha_de_firma", "fecha_de_inicio_del_contrato", "fecha_de_fin_del_contrato"]:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+    for col in ["nombre_entidad", "proveedor_adjudicado"]:
+        df[col + "_norm"] = df[col].astype("string").str.strip()
+        df.loc[df[col + "_norm"].isin(["", "nan", "None", "<NA>"]), col + "_norm"] = pd.NA
+
+    if df["id_contrato"].isna().all():
+        df["id_contrato"] = [f"FILA_{i}" for i in range(len(df))]
+    else:
+        df["id_contrato"] = df["id_contrato"].astype("string").str.strip()
+        nulos_id = df["id_contrato"].isna() | df["id_contrato"].isin(["", "nan", "None"])
+        df.loc[nulos_id, "id_contrato"] = [f"FILA_{i}" for i in df.index[nulos_id]]
+
+    # El notebook elimina únicamente filas totalmente idénticas.
+    df = df.drop_duplicates().copy()
+    df_clean = df[
+        (df["valor_del_contrato"] > 0)
+        & df["nombre_entidad_norm"].notna()
+    ].copy()
+    if df_clean.empty:
+        raise ValueError("No quedaron contratos válidos: revise valor_del_contrato y nombre_entidad.")
+
+    # Base de entidades: cantidad de contratos únicos y valor acumulado.
+    entidades = df_clean.groupby("nombre_entidad_norm").agg(
+        total_contratos=("id_contrato", "nunique"),
+        total_valor=("valor_del_contrato", "sum"),
+    )
+    # KPI 1 y 2: concentración de valor y de número de contratos por proveedor.
+    prov_valor = df_clean.dropna(subset=["proveedor_adjudicado_norm"]).groupby(
+        ["nombre_entidad_norm", "proveedor_adjudicado_norm"]
+    )["valor_del_contrato"].sum()
+    participacion_valor = prov_valor / entidades["total_valor"]
+    entidades["hhi_valor"] = (participacion_valor.pow(2).groupby(level=0).sum()).reindex(entidades.index).fillna(0)
+
+    prov_n = df_clean.dropna(subset=["proveedor_adjudicado_norm"]).groupby(
+        ["nombre_entidad_norm", "proveedor_adjudicado_norm"]
+    )["id_contrato"].nunique()
+    participacion_n = prov_n / entidades["total_contratos"]
+    entidades["hhi_n"] = (participacion_n.pow(2).groupby(level=0).sum()).reindex(entidades.index).fillna(0)
+
+    modalidad = df_clean["modalidad_de_contratacion"].astype("string").fillna("")
+    directa = modalidad.str.contains("directa", case=False, na=False)
+    regimen = modalidad.str.contains("regimen especial|régimen especial", case=False, na=False)
+    valor_directa = df_clean.loc[directa].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    valor_regimen = df_clean.loc[regimen].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_directa"] = valor_directa.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+    entidades["pct_valor_regimen_esp"] = valor_regimen.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    tipo = df_clean["tipo_de_contrato"].astype("string").fillna("")
+    ops = tipo.str.contains("prestacion de servicios|prestación de servicios", case=False, na=False)
+    conteo_ops = df_clean.loc[ops].groupby("nombre_entidad_norm")["id_contrato"].nunique()
+    entidades["pct_contratos_ops"] = conteo_ops.reindex(entidades.index, fill_value=0) / entidades["total_contratos"]
+
+    pyme = df_clean["es_pyme"].astype("string").str.strip().str.upper().isin(["SI", "SÍ", "TRUE", "1"])
+    valor_pyme = df_clean.loc[pyme].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_pyme"] = valor_pyme.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    # KPI 7 y 8: promedio de la proporción anual en enero-febrero y noviembre-diciembre.
+    df_clean["anio_firma"] = df_clean["fecha_de_firma"].dt.year
+    df_clean["mes_firma"] = df_clean["fecha_de_firma"].dt.month
+    for nombre, meses, salida in [
+        ("ene_feb", [1, 2], "pct_valor_ene_feb_anual"),
+        ("nov_dic", [11, 12], "pct_valor_nov_dic_anual"),
+    ]:
+        df_clean["valor_temporal"] = np.where(df_clean["mes_firma"].isin(meses), df_clean["valor_del_contrato"], 0)
+        anual = df_clean.dropna(subset=["anio_firma"]).groupby(["nombre_entidad_norm", "anio_firma"]).agg(
+            total_anio=("valor_del_contrato", "sum"), valor_periodo=("valor_temporal", "sum")
+        )
+        anual["proporcion"] = anual["valor_periodo"] / anual["total_anio"].replace(0, np.nan)
+        entidades[salida] = anual.groupby(level=0)["proporcion"].mean().reindex(entidades.index).fillna(0)
+    df_clean.drop(columns=["valor_temporal"], inplace=True, errors="ignore")
+
+    # KPI 9: HHI del ordenador del gasto por año, promediado por entidad.
+    doc = df_clean["n_mero_de_documento_ordenador_del_gasto"].astype("string").str.strip()
+    df_clean["doc_ordenador_clean"] = doc.mask(doc.isin(["", "nan", "None", "0", "<NA>"]))
+    ord_anual = df_clean.dropna(subset=["doc_ordenador_clean", "anio_firma"]).groupby(
+        ["nombre_entidad_norm", "anio_firma", "doc_ordenador_clean"]
+    )["valor_del_contrato"].sum()
+    if len(ord_anual):
+        total_ordenadores = ord_anual.groupby(level=[0, 1]).sum()
+        hhi_anual = (ord_anual / total_ordenadores).pow(2).groupby(level=[0, 1]).sum()
+        hhi_ordenador = hhi_anual.groupby(level=0).mean()
+        entidades["hhi_ordenador"] = hhi_ordenador.reindex(entidades.index).fillna(1.0)
+    else:
+        entidades["hhi_ordenador"] = 1.0
+
+    # KPI 10: mediana de duración válida (0 a 3650 días).
+    dias = (df_clean["fecha_de_fin_del_contrato"] - df_clean["fecha_de_inicio_del_contrato"]).dt.days
+    dias = dias.where((dias >= 0) & (dias <= 3650))
+    df_clean["dias_reales"] = dias
+    duracion = df_clean.groupby("nombre_entidad_norm")["dias_reales"].median()
+    mediana_general = duracion.median()
+    entidades["duracion_mediana_dias"] = duracion.reindex(entidades.index).fillna(0 if pd.isna(mediana_general) else mediana_general)
+
+    # KPI 11: escala presupuestal e inversión.
+    entidades["log_valor_total"] = np.log1p(entidades["total_valor"])
+    destino = df_clean["destino_gasto"].astype("string").fillna("")
+    inversion = destino.str.contains("inversi[oó]n", case=False, na=False)
+    valor_inversion = df_clean.loc[inversion].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_inversion"] = valor_inversion.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    # KPI 12: proporción de contratos modificados, cedidos o suspendidos.
+    estado = df_clean["estado_contrato"].astype("string").fillna("")
+    desviados = estado.str.contains("modificad|cedid|suspendid", case=False, na=False)
+    conteo_desviados = df_clean.loc[desviados].groupby("nombre_entidad_norm")["id_contrato"].nunique()
+    entidades["tasa_contratos_modificados"] = conteo_desviados.reindex(entidades.index, fill_value=0) / entidades["total_contratos"]
+
+    entidades = entidades.replace([np.inf, -np.inf], np.nan)
+    entidades[COLUMNAS_PCA] = entidades[COLUMNAS_PCA].fillna(0)
+    entidades.index.name = "entidad"
+    return df_clean, entidades.reset_index().rename(columns={"nombre_entidad_norm": "entidad"})
+
+
+def ejecutar_pca_kmeans(tabla_kpi):
+    """Escala los 13 KPI, calcula PCA y prepara métricas y clústeres."""
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+    from sklearn.metrics import silhouette_score
+    from sklearn.preprocessing import StandardScaler
+
+    modelo = tabla_kpi[tabla_kpi["total_contratos"] >= 10].copy()
+    if len(modelo) < 3:
+        raise ValueError(
+            "Se necesitan al menos 3 entidades con 10 contratos o más para ejecutar PCA y K-Means. "
+            "El análisis KPI sí puede consultarse con menos registros."
+        )
+    X = modelo[COLUMNAS_PCA].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0)
+    escalador = StandardScaler()
+    X_scaled = escalador.fit_transform(X)
+    n_componentes = min(len(COLUMNAS_PCA), X_scaled.shape[0], X_scaled.shape[1])
+    pca = PCA(n_components=n_componentes)
+    X_pca = pca.fit_transform(X_scaled)
+    varianza = pd.DataFrame({
+        "Componente": [f"PC{i+1}" for i in range(n_componentes)],
+        "Valor_Propio": pca.explained_variance_,
+        "Varianza_%": pca.explained_variance_ratio_ * 100,
+        "Acumulada_%": np.cumsum(pca.explained_variance_ratio_) * 100,
+    })
+    k_kaiser = int((varianza["Valor_Propio"] > 1).sum())
+    n_cluster_pc = min(4, n_componentes, max(1, k_kaiser))
+    if n_cluster_pc < 1:
+        n_cluster_pc = min(2, n_componentes)
+    X_cluster = X_pca[:, :n_cluster_pc]
+
+    max_k = min(8, len(modelo) - 1)
+    filas_metricas = []
+    for k in range(2, max_k + 1):
+        km = KMeans(n_clusters=k, random_state=42, n_init=20)
+        etiquetas = km.fit_predict(X_cluster)
+        silueta = silhouette_score(X_cluster, etiquetas) if len(set(etiquetas)) > 1 else np.nan
+        filas_metricas.append({"k": k, "Inercia": km.inertia_, "Silhouette_Score": silueta})
+    metricas_k = pd.DataFrame(filas_metricas)
+
+    k_final = min(4, len(modelo) - 1)
+    k_final = max(2, k_final)
+    km_final = KMeans(n_clusters=k_final, random_state=42, n_init=30)
+    modelo["Cluster"] = km_final.fit_predict(X_cluster)
+    modelo["PC1"] = X_pca[:, 0]
+    modelo["PC2"] = X_pca[:, 1] if X_pca.shape[1] > 1 else 0.0
+    cargas = pd.DataFrame(
+        pca.components_[:max(1, k_kaiser)].T,
+        index=COLUMNAS_PCA,
+        columns=[f"PC{i+1}" for i in range(max(1, k_kaiser))],
+    )
+    perfil = modelo.groupby("Cluster")[COLUMNAS_PCA].mean().reset_index()
+    return modelo, varianza, cargas, metricas_k, perfil, k_kaiser, n_cluster_pc
+
+
 # ----- Inicio antes de ingresar -----
 
 if "sesion" not in st.session_state:
@@ -524,11 +851,12 @@ if len(filtrado) > 0:
     )
     st.markdown(f'<div class="barra-azul"><b>Focos Andinos:</b> {focos_texto}</div>', unsafe_allow_html=True)
 
-tab_noticias, tab_resumen, tab_mapa, tab_dashboard, tab_senales_rend, tab_judiciales, tab_red, tab_ods = st.tabs([
+tab_noticias, tab_resumen, tab_mapa, tab_dashboard, tab_kpis, tab_senales_rend, tab_judiciales, tab_red, tab_ods = st.tabs([
     "Noticias Andina",
     "Resumen",
     "Mapa",
     "Dashboard interactivo",
+    "KPIs · PCA y K-Means",
     "Señales y Rendimiento",
     "Servicios Judiciales",
     "Red",
@@ -642,6 +970,147 @@ with tab_dashboard:
             ),
             use_container_width=True,
         )
+
+
+# ----- KPIs · PCA y K-Means -----
+
+with tab_kpis:
+    st.subheader("Indicadores de contratación pública · SECOP II")
+    st.caption(
+        "Este módulo calcula indicadores por entidad a partir de registros individuales de contratos. "
+        "Es independiente del CSV agregado que alimenta el resumen general del portal."
+    )
+
+    datos_secop = None
+    fuente_secop = "Google Drive (CSV SECOP II)"
+
+    if st.button("Actualizar dataset desde Google Drive", key="actualizar_dataset_kpi"):
+        cargar_dataset_kpi_drive.clear()
+
+    try:
+        with st.spinner("Descargando dataset KPI desde Google Drive..."):
+            datos_secop = cargar_dataset_kpi_drive(ENLACE_DATASET_KPI)
+        st.success("Dataset KPI cargado correctamente desde Google Drive.")
+    except Exception as exc:
+        st.error(f"No fue posible cargar el dataset KPI: {exc}")
+
+    if datos_secop is None:
+        st.info(
+            "Verifica ENLACE_DATASET_KPI, los permisos de acceso (cualquier persona con el enlace) "
+            "y que el archivo sea un CSV de contratos SECOP II."
+        )
+        st.markdown("**Columnas mínimas requeridas:** `valor_del_contrato`, "
+                    "`nombre_entidad` y `proveedor_adjudicado`.")
+    else:
+        try:
+            df_secop_limpio, tabla_kpi = calcular_kpis_secop(datos_secop)
+            st.caption(f"Fuente: {fuente_secop} · {len(datos_secop):,} filas leídas · {len(df_secop_limpio):,} contratos válidos · {len(tabla_kpi):,} entidades")
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Entidades", f"{len(tabla_kpi):,}")
+            k2.metric("Contratos válidos", f"{len(df_secop_limpio):,}")
+            k3.metric("Valor contratado", f"${tabla_kpi['total_valor'].sum():,.0f}")
+            k4.metric("Entidades para PCA", f"{int((tabla_kpi['total_contratos'] >= 10).sum()):,}")
+
+            sub_kpi, sub_pca, sub_kmeans, sub_datos = st.tabs([
+                "Indicadores KPI", "Análisis PCA", "Segmentación K-Means", "Datos y descarga"
+            ])
+
+            with sub_kpi:
+                st.markdown("**Indicadores calculados por entidad**")
+                nombre_kpi = {
+                    "entidad": "Entidad", "total_contratos": "Total contratos", "total_valor": "Valor total",
+                    "hhi_valor": "HHI por valor", "hhi_n": "HHI por número",
+                    "pct_valor_directa": "% valor contratación directa", "pct_valor_regimen_esp": "% valor régimen especial",
+                    "pct_contratos_ops": "% contratos OPS", "pct_valor_pyme": "% valor adjudicado a PYMES",
+                    "pct_valor_ene_feb_anual": "% valor enero-febrero (promedio anual)",
+                    "pct_valor_nov_dic_anual": "% valor noviembre-diciembre (promedio anual)",
+                    "hhi_ordenador": "HHI ordenador del gasto", "duracion_mediana_dias": "Duración mediana (días)",
+                    "log_valor_total": "Log valor total", "pct_valor_inversion": "% valor inversión",
+                    "tasa_contratos_modificados": "Tasa contratos modificados",
+                }
+                vista = tabla_kpi.rename(columns=nombre_kpi).copy()
+                columnas_pct = [c for c in vista.columns if c.startswith("%") or c.startswith("Tasa")]
+                for c in columnas_pct:
+                    vista[c] = (vista[c] * 100).round(2)
+                st.dataframe(vista.sort_values("Valor total", ascending=False), hide_index=True, use_container_width=True)
+                st.caption("Los indicadores porcentuales se muestran en escala 0–100 %. HHI se conserva en escala 0–1.")
+                metrica = st.selectbox(
+                    "Indicador para comparar entidades",
+                    ["hhi_valor", "hhi_n", "pct_valor_directa", "pct_valor_regimen_esp", "pct_contratos_ops", "pct_valor_pyme", "pct_valor_ene_feb_anual", "pct_valor_nov_dic_anual", "hhi_ordenador", "duracion_mediana_dias", "pct_valor_inversion", "tasa_contratos_modificados"],
+                    format_func=lambda x: nombre_kpi.get(x, x), key="kpi_metrica_comparar",
+                )
+                top_entidades = tabla_kpi.nlargest(20, metrica)
+                st.plotly_chart(px.bar(top_entidades, x="entidad", y=metrica, title=f"20 entidades con mayor valor: {nombre_kpi.get(metrica, metrica)}"), use_container_width=True)
+
+            # PCA y K-Means se calculan una vez para las pestañas de análisis.
+            resultado_modelo = None
+            error_modelo = None
+            try:
+                resultado_modelo = ejecutar_pca_kmeans(tabla_kpi)
+            except Exception as exc:
+                error_modelo = str(exc)
+
+            if resultado_modelo is None:
+                with sub_pca:
+                    st.warning(error_modelo)
+                with sub_kmeans:
+                    st.warning(error_modelo)
+            else:
+                modelo, varianza, cargas, metricas_k, perfil, k_kaiser, n_cluster_pc = resultado_modelo
+                with sub_pca:
+                    st.markdown("**Varianza explicada por componente principal**")
+                    st.metric("Componentes con valor propio > 1 (Kaiser)", k_kaiser)
+                    st.dataframe(varianza.round(4), hide_index=True, use_container_width=True)
+                    st.plotly_chart(px.bar(varianza, x="Componente", y="Varianza_%", title="Varianza explicada por componente"), use_container_width=True)
+                    st.plotly_chart(px.line(varianza, x="Componente", y="Acumulada_%", markers=True, title="Varianza acumulada"), use_container_width=True)
+                    st.markdown("**Cargas de los componentes principales**")
+                    st.dataframe(cargas.round(3), use_container_width=True)
+                    st.caption(f"K-Means utiliza los primeros {n_cluster_pc} componentes disponibles, hasta un máximo de cuatro.")
+
+                with sub_kmeans:
+                    st.markdown("**Evaluación del número de clústeres**")
+                    if len(metricas_k):
+                        st.dataframe(metricas_k.round(4), hide_index=True, use_container_width=True)
+                        col_codo, col_silueta = st.columns(2)
+                        with col_codo:
+                            st.plotly_chart(px.line(metricas_k, x="k", y="Inercia", markers=True, title="Método del codo"), use_container_width=True)
+                        with col_silueta:
+                            st.plotly_chart(px.line(metricas_k, x="k", y="Silhouette_Score", markers=True, title="Coeficiente de silueta"), use_container_width=True)
+                    st.markdown("**Segmentación final (K-Means)**")
+                    st.caption(f"Se utiliza k={modelo['Cluster'].nunique()} y los primeros {n_cluster_pc} componentes principales. La asignación es reproducible (random_state=42).")
+                    st.plotly_chart(px.scatter(modelo, x="PC1", y="PC2", color=modelo["Cluster"].astype(str), hover_name="entidad", hover_data=["total_contratos", "total_valor"], title="Entidades agrupadas en el plano PCA (PC1 vs. PC2)", labels={"color": "Clúster"}), use_container_width=True)
+                    distribucion = modelo["Cluster"].value_counts().sort_index().rename_axis("Cluster").reset_index(name="Entidades")
+                    st.plotly_chart(px.bar(distribucion, x="Cluster", y="Entidades", title="Cantidad de entidades por clúster"), use_container_width=True)
+                    st.markdown("**Perfil promedio de KPI por clúster**")
+                    st.dataframe(perfil.round(4), hide_index=True, use_container_width=True)
+                    ejemplos = modelo.sort_values(["Cluster", "total_valor"], ascending=[True, False]).groupby("Cluster").head(5)
+                    st.markdown("**Entidades representativas por clúster (mayor presupuesto)**")
+                    st.dataframe(ejemplos[["Cluster", "entidad", "total_contratos", "total_valor", "PC1", "PC2"]], hide_index=True, use_container_width=True)
+
+            with sub_datos:
+                st.markdown("**Vista de los registros utilizados**")
+                st.dataframe(df_secop_limpio.head(500), hide_index=True, use_container_width=True)
+                st.caption("Se muestran como máximo 500 filas en pantalla para evitar sobrecargar el navegador.")
+                st.download_button(
+                    "Descargar indicadores KPI (CSV)",
+                    data=tabla_kpi.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="indicadores_kpi_secop.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+                if resultado_modelo is not None:
+                    modelo_exportar = resultado_modelo[0]
+                    st.download_button(
+                        "Descargar entidades con clúster (CSV)",
+                        data=modelo_exportar.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="entidades_kmeans_pca.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+        except Exception as exc:
+            st.error(f"No se pudo completar el análisis KPI: {exc}")
+            st.info("Verifica que el archivo incluya al menos valor_del_contrato, nombre_entidad y proveedor_adjudicado.")
 
 
 # ----- Señales y Rendimiento -----
