@@ -1,22 +1,18 @@
-# Alertas de contratos de medicamentos en Colombia
+# Alertas de contratos electrónicos 
 
 Proyecto integrador de cuarto semestre. Une tres materias:
 Computación Paralela y Distribuida, Redes e Infraestructura y Analítica y Visualización de Datos.
-Objetivo de Desarrollo Sostenible: ODS 3, salud y bienestar.
 
 ## Qué hace
 
-- Toma 100.000 contratos públicos y se queda con los de medicamentos e insumos médicos.
-- Calcula cuánto falta por pagar en cada contrato y le pone un nivel de alerta (Alta, Media, Baja).
-- Muestra los contratos en una aplicación web con filtros, un mapa por departamento y gráficos.
-- El administrador puede enviar las alertas por Telegram a compradores, EPS y farmacias.
+- Toma más de 300.00 contratos públicos.
 
 ## Carpetas
 
 - `app.py`: la aplicación web (Streamlit).
 - `enviar_telegram.py`: envía un mensaje por Telegram. Lo usa la aplicación.
 - `procesamiento/`: limpieza de los datos.
-  - `reglas.py`: las reglas del proyecto (qué es un contrato de medicamentos, categorías y niveles de alerta).
+  - `reglas.py`: las reglas del proyecto (son contratos públicos electrónicos a nivel regional área Andina).
   - `filtrar_paralelo.py`: limpieza en serie y con multiprocessing, con medición de speedup y eficiencia.
   - `spark_resumen.py`: lo mismo con Apache Spark.
   - `crear_alertas.py`: calcula el saldo pendiente y el nivel de alerta.
@@ -32,14 +28,18 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Las claves de la base de datos y el token de Telegram no están en el código:
-van en los Secrets de Streamlit o en variables de entorno.
+
 
 ## Privacidad
 
-Se quitó la columna con los números de documento de quien ordena el gasto.
-Las alertas solo se envían a personas que iniciaron el bot de Telegram.
+Se mantiene una sección para solo administradores encargados de dirigirel control de la app
 
 ## Integrantes
 
-(Escribir aquí los nombres del grupo)
+Camila González 
+Camila Pineda
+Cristian Guya
+Hanna González 
+Nardelly Ramírez 
+Mariana Rodríguez 
+
