@@ -1,12 +1,14 @@
 import os
+import re
 import time
+import unicodedata
 import hashlib
 import hmac
 import urllib.parse
-import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -356,378 +358,6 @@ def preparar_datos(df):
     return out
 
 
-
-# ----- Analisis avanzado: KPI, PCA y K-Means (adaptado del notebook) -----
-
-COLUMNAS_KPI_REQUERIDAS = [
-    "id_contrato", "valor_del_contrato",
-    "modalidad_de_contratacion",
-    "tipo_de_contrato", "es_pyme", "fecha_de_firma",
-    "n_mero_de_documento_ordenador_del_gasto",
-    "fecha_de_inicio_del_contrato", "fecha_de_fin_del_contrato",
-    "destino_gasto", "estado_contrato",
-]
-
-FEATURES_PCA = [
-    "hhi_valor",
-    "hhi_n",
-    "pct_valor_directa",
-    "pct_valor_regimen_esp",
-    "pct_contratos_ops",
-    "pct_valor_pyme",
-    "pct_valor_ene_feb_anual",
-    "pct_valor_nov_dic_anual",
-    "hhi_ordenador",
-    "duracion_mediana_dias",
-    "log_valor_total",
-    "pct_valor_inversion",
-    "tasa_contratos_modificados",
-]
-
-
-def _normalizar_texto_kpi(valor):
-    import unicodedata
-    if pd.isna(valor):
-        return None
-    texto = unicodedata.normalize("NFKD", str(valor))
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    texto = texto.upper().replace(".", "")
-    texto = re.sub(r"[^\w\s]", " ", texto)
-    texto = re.sub(r"\s+", " ", texto).strip()
-    return texto or None
-
-
-def _normalizar_columnas_kpi(df):
-    out = df.copy()
-    out.columns = (
-        out.columns.astype(str).str.strip().str.lower()
-        .str.replace(r"\s+", "_", regex=True)
-        .str.replace(r"[^\w]", "_", regex=True)
-        .str.replace(r"_+", "_", regex=True).str.strip("_")
-    )
-    # Mantiene compatibilidad con la escritura de la columna del notebook.
-    aliases = {
-        "numero_de_documento_ordenador_del_gasto":
-            "n_mero_de_documento_ordenador_del_gasto",
-        "número_de_documento_ordenador_del_gasto":
-            "n_mero_de_documento_ordenador_del_gasto",
-        "nombre_entidad_norm": "entidad_norm",
-    }
-    for origen, destino in aliases.items():
-        if origen in out.columns and destino not in out.columns:
-            out[destino] = out[origen]
-    return out
-
-
-def calcular_kpis_pca(df_original):
-    """Calcula los KPI de la libreta y prepara PCA/K-Means sin escribir archivos."""
-    import numpy as np
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.cluster import KMeans
-    from sklearn.metrics import silhouette_score
-
-    df_prep = _normalizar_columnas_kpi(df_original)
-    faltantes = [c for c in COLUMNAS_KPI_REQUERIDAS if c not in df_prep.columns]
-    if "entidad_norm" not in df_prep.columns and "nombre_entidad" not in df_prep.columns:
-        faltantes.append("entidad_norm o nombre_entidad")
-    if "proveedor_adjudicado_norm" not in df_prep.columns and "proveedor_adjudicado" not in df_prep.columns:
-        faltantes.append("proveedor_adjudicado_norm o proveedor_adjudicado")
-    if faltantes:
-        raise ValueError(
-            "El archivo no contiene las columnas necesarias para el análisis SECOP: "
-            + ", ".join(faltantes)
-        )
-
-    # Preparación de tipos y nombres, basada en la celda de preparación del notebook.
-    df_prep["id_contrato"] = df_prep["id_contrato"].astype("string").str.strip()
-    df_prep["valor_del_contrato"] = pd.to_numeric(
-        df_prep["valor_del_contrato"], errors="coerce"
-    )
-    for col in [
-        "fecha_de_firma", "fecha_de_inicio_del_contrato",
-        "fecha_de_fin_del_contrato",
-    ]:
-        df_prep[col] = pd.to_datetime(df_prep[col], errors="coerce", dayfirst=False)
-
-    if "entidad_norm" not in df_prep.columns or df_prep["entidad_norm"].isna().all():
-        df_prep["entidad_norm"] = df_prep["nombre_entidad"].map(_normalizar_texto_kpi)
-    else:
-        df_prep["entidad_norm"] = df_prep["entidad_norm"].map(_normalizar_texto_kpi)
-
-    if "proveedor_adjudicado_norm" not in df_prep.columns:
-        if "proveedor_adjudicado" not in df_prep.columns:
-            raise ValueError("Falta la columna proveedor_adjudicado.")
-        df_prep["proveedor_adjudicado_norm"] = df_prep[
-            "proveedor_adjudicado"
-        ].map(_normalizar_texto_kpi)
-    else:
-        df_prep["proveedor_adjudicado_norm"] = df_prep[
-            "proveedor_adjudicado_norm"
-        ].map(_normalizar_texto_kpi)
-
-    df_clean = df_prep[
-        (df_prep["valor_del_contrato"] > 0)
-        & df_prep["entidad_norm"].notna()
-    ].copy()
-    if df_clean.empty:
-        raise ValueError("No hay contratos con valor positivo y entidad identificada.")
-
-    df_entidades = df_clean.groupby("entidad_norm").agg(
-        total_contratos=("id_contrato", "nunique"),
-        total_valor=("valor_del_contrato", "sum"),
-    )
-
-    # KPI 1 y 2: concentración por valor adjudicado y por número de contratos.
-    prov_valor = df_clean.groupby(
-        ["entidad_norm", "proveedor_adjudicado_norm"]
-    )["valor_del_contrato"].sum()
-    participacion_valor = prov_valor / df_entidades["total_valor"]
-    df_entidades["hhi_valor"] = (
-        (participacion_valor ** 2).groupby("entidad_norm").sum()
-    )
-
-    prov_n = df_clean.groupby(
-        ["entidad_norm", "proveedor_adjudicado_norm"]
-    )["id_contrato"].nunique()
-    participacion_n = prov_n / df_entidades["total_contratos"]
-    df_entidades["hhi_n"] = (
-        (participacion_n ** 2).groupby("entidad_norm").sum()
-    )
-
-    # KPI 3: porcentaje del valor en contratación directa.
-    directa = df_clean["modalidad_de_contratacion"].astype(str).str.contains(
-        "directa", case=False, na=False
-    )
-    valor_directa = (
-        df_clean[directa].groupby("entidad_norm")["valor_del_contrato"]
-        .sum().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_valor_directa"] = valor_directa / df_entidades["total_valor"]
-
-    # KPI 4: régimen especial.
-    regimen = df_clean["modalidad_de_contratacion"].astype(str).str.contains(
-        r"régimen especial|regimen especial", case=False, na=False
-    )
-    valor_regimen = (
-        df_clean[regimen].groupby("entidad_norm")["valor_del_contrato"]
-        .sum().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_valor_regimen_esp"] = valor_regimen / df_entidades["total_valor"]
-
-    # KPI 5: proporción de contratos de prestación de servicios.
-    ops = df_clean["tipo_de_contrato"].astype(str).str.contains(
-        r"Prestación de servicios|Prestacion de servicios",
-        case=False, na=False
-    )
-    conteo_ops = (
-        df_clean[ops].groupby("entidad_norm")["id_contrato"]
-        .nunique().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_contratos_ops"] = (
-        conteo_ops / df_entidades["total_contratos"]
-    )
-
-    # KPI 6: porcentaje del valor adjudicado a PYMES.
-    pyme = df_clean["es_pyme"].astype(str).str.strip().str.upper().isin(
-        ["SI", "SÍ", "TRUE", "1"]
-    )
-    valor_pyme = (
-        df_clean[pyme].groupby("entidad_norm")["valor_del_contrato"]
-        .sum().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_valor_pyme"] = valor_pyme / df_entidades["total_valor"]
-
-    # KPI 7 y 8: planeación temprana y afán presupuestal de cierre (promedios anuales).
-    df_clean["anio_firma"] = df_clean["fecha_de_firma"].dt.year
-    df_clean["mes_firma"] = df_clean["fecha_de_firma"].dt.month
-    df_clean["val_ene_feb_temp"] = np.where(
-        df_clean["mes_firma"].isin([1, 2]), df_clean["valor_del_contrato"], 0
-    )
-    df_clean["val_nov_dic_temp"] = np.where(
-        df_clean["mes_firma"].isin([11, 12]), df_clean["valor_del_contrato"], 0
-    )
-    anual = df_clean.groupby(["entidad_norm", "anio_firma"]).agg(
-        valor_total_anio=("valor_del_contrato", "sum"),
-        valor_ene_feb_anio=("val_ene_feb_temp", "sum"),
-        valor_nov_dic_anio=("val_nov_dic_temp", "sum"),
-    )
-    anual["pct_ene_feb"] = (
-        anual["valor_ene_feb_anio"] / anual["valor_total_anio"]
-    )
-    anual["pct_nov_dic"] = (
-        anual["valor_nov_dic_anio"] / anual["valor_total_anio"]
-    )
-    df_entidades["pct_valor_ene_feb_anual"] = (
-        anual.groupby("entidad_norm")["pct_ene_feb"].mean()
-        .reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_valor_nov_dic_anual"] = (
-        anual.groupby("entidad_norm")["pct_nov_dic"].mean()
-        .reindex(df_entidades.index, fill_value=0)
-    )
-
-    # KPI 9: concentración del ordenador del gasto por año.
-    doc_col = "n_mero_de_documento_ordenador_del_gasto"
-    df_clean["doc_ordenador_clean"] = (
-        df_clean[doc_col].astype(str).str.strip()
-        .replace({"nan": np.nan, "None": np.nan, "": np.nan, "0": np.nan})
-    )
-    ord_anual = (
-        df_clean.dropna(subset=["doc_ordenador_clean"])
-        .groupby(["entidad_norm", "anio_firma", "doc_ordenador_clean"])[
-            "valor_del_contrato"
-        ].sum()
-    )
-    total_ord_anual = ord_anual.groupby(["entidad_norm", "anio_firma"]).sum()
-    hhi_ord = (
-        ((ord_anual / total_ord_anual) ** 2)
-        .groupby(["entidad_norm", "anio_firma"]).sum()
-    )
-    df_entidades["hhi_ordenador"] = (
-        hhi_ord.groupby("entidad_norm").mean()
-        .reindex(df_entidades.index, fill_value=1.0)
-    )
-
-    # KPI 10: duración mediana en días, descartando duraciones no plausibles.
-    dias = (
-        df_clean["fecha_de_fin_del_contrato"]
-        - df_clean["fecha_de_inicio_del_contrato"]
-    ).dt.days
-    dias = dias.mask((dias < 0) | (dias > 3650))
-    df_clean["dias_reales"] = dias
-    df_entidades["duracion_mediana_dias"] = (
-        df_clean.groupby("entidad_norm")["dias_reales"].median()
-    )
-    mediana_general = df_entidades["duracion_mediana_dias"].median()
-    df_entidades["duracion_mediana_dias"] = (
-        df_entidades["duracion_mediana_dias"].fillna(
-            0 if pd.isna(mediana_general) else mediana_general
-        )
-    )
-
-    # KPI 11: escala presupuestal y proporción del gasto en inversión.
-    df_entidades["log_valor_total"] = np.log1p(df_entidades["total_valor"])
-    inversion = df_clean["destino_gasto"].astype(str).str.contains(
-        "Inversión|Inversion", case=False, na=False
-    )
-    valor_inversion = (
-        df_clean[inversion].groupby("entidad_norm")["valor_del_contrato"]
-        .sum().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["pct_valor_inversion"] = (
-        valor_inversion / df_entidades["total_valor"]
-    )
-
-    # KPI 12: tasa de contratos modificados, cedidos o suspendidos.
-    desviados = df_clean["estado_contrato"].astype(str).str.contains(
-        r"modificad|cedid|suspendid", case=False, na=False
-    )
-    conteo_desviados = (
-        df_clean[desviados].groupby("entidad_norm")["id_contrato"]
-        .nunique().reindex(df_entidades.index, fill_value=0)
-    )
-    df_entidades["tasa_contratos_modificados"] = (
-        conteo_desviados / df_entidades["total_contratos"]
-    )
-
-    # Modelo: conserva el filtro de mínimo 10 contratos del notebook.
-    df_modelo = df_entidades[df_entidades["total_contratos"] >= 10].copy()
-    if len(df_modelo) < 5:
-        raise ValueError(
-            "Se necesitan al menos 5 entidades con 10 o más contratos para "
-            "ejecutar K-Means con cuatro grupos. Entidades disponibles: "
-            f"{len(df_modelo)}."
-        )
-
-    X = df_modelo[FEATURES_PCA].copy()
-    X["duracion_mediana_dias"] = X["duracion_mediana_dias"].clip(lower=0)
-    X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    pca = PCA()
-    X_pca = pca.fit_transform(X_scaled)
-
-    tabla_varianza = pd.DataFrame({
-        "Componente": [f"PC{i+1}" for i in range(len(pca.explained_variance_))],
-        "Valor propio": pca.explained_variance_,
-        "Varianza (%)": pca.explained_variance_ratio_ * 100,
-        "Acumulada (%)": np.cumsum(pca.explained_variance_ratio_) * 100,
-    })
-    k_kaiser = int((tabla_varianza["Valor propio"] > 1).sum())
-    n_componentes_modelo = min(4, X_pca.shape[1])
-    if n_componentes_modelo < 2:
-        raise ValueError("No hay suficientes componentes para visualizar el PCA.")
-
-    cargas = pd.DataFrame(
-        pca.components_[:max(k_kaiser, 1)].T,
-        columns=[f"PC{i+1}" for i in range(max(k_kaiser, 1))],
-        index=FEATURES_PCA,
-    )
-
-    # Evaluación de K entre 2 y 8 (o el máximo permitido por el tamaño muestral).
-    X_pca_modelo = X_pca[:, :n_componentes_modelo]
-    max_k = min(8, len(df_modelo) - 1)
-    metricas = []
-    for k in range(2, max_k + 1):
-        modelo_k = KMeans(n_clusters=k, random_state=42, n_init=20)
-        etiquetas_k = modelo_k.fit_predict(X_pca_modelo)
-        sil = silhouette_score(X_pca_modelo, etiquetas_k)
-        metricas.append({
-            "k": k, "Inercia": modelo_k.inertia_,
-            "Silhouette": sil,
-        })
-    metricas_k = pd.DataFrame(metricas)
-    k_final = 4 if len(df_modelo) >= 5 else min(2, len(df_modelo) - 1)
-    kmeans_final = KMeans(n_clusters=k_final, random_state=42, n_init=30)
-    df_modelo["Cluster"] = kmeans_final.fit_predict(X_pca_modelo)
-    df_modelo["PC1"] = X_pca[:, 0]
-    df_modelo["PC2"] = X_pca[:, 1]
-    perfil_clusters = df_modelo.groupby("Cluster")[FEATURES_PCA].mean()
-
-    return {
-        "df_entidades": df_entidades.reset_index(),
-        "df_modelo": df_modelo.reset_index(),
-        "tabla_varianza": tabla_varianza,
-        "cargas": cargas,
-        "metricas_k": metricas_k,
-        "perfil_clusters": perfil_clusters,
-        "features": FEATURES_PCA,
-        "k_kaiser": k_kaiser,
-        "k_final": k_final,
-        "varianza_pc1": pca.explained_variance_ratio_[0] * 100,
-        "varianza_pc2": pca.explained_variance_ratio_[1] * 100,
-        "registros_validos": len(df_clean),
-    }
-
-
-def cargar_dataset_kpi(archivo_subido=None):
-    """Prioriza el archivo subido y luego busca fuentes SECOP en el repositorio."""
-    if archivo_subido is not None:
-        nombre = getattr(archivo_subido, "name", "archivo cargado")
-        if nombre.lower().endswith((".xls", ".xlsx")):
-            return pd.read_excel(archivo_subido), f"subido: {nombre}"
-        return pd.read_csv(archivo_subido, encoding="utf-8-sig", low_memory=False), f"subido: {nombre}"
-
-    candidatos = [
-        "datos_region_andina.xls",
-        "datos_region_andina.xlsx",
-        "contratos_preparados.parquet",
-        "contratos_preparados.csv",
-        "SECOP_15-26.csv",
-        "SECOP_23-26.csv",
-        "SECOP_200K_CON_TODOS_LOS_MEDICAMENTOS.csv",
-    ]
-    for ruta in candidatos:
-        if os.path.exists(ruta):
-            if ruta.lower().endswith((".xls", ".xlsx")):
-                return pd.read_excel(ruta), ruta
-            if ruta.lower().endswith(".parquet"):
-                return pd.read_parquet(ruta), ruta
-            return pd.read_csv(ruta, encoding="utf-8-sig", low_memory=False), ruta
-    return None, None
-
-
 def svg_logo_andina(size=44):
     return (
         f'<svg width="{size}" height="{int(size * 1.15)}" viewBox="0 0 46 52" fill="none" xmlns="http://www.w3.org/2000/svg">'
@@ -808,6 +438,275 @@ def leer_suscriptores():
         return [dict(p) for p in st.secrets["suscriptores"]]
     except Exception:
         return []
+
+
+# ----- Módulo de análisis KPI, PCA y K-Means (SECOP II) -----
+
+COLUMNAS_PCA = [
+    "hhi_valor", "hhi_n", "pct_valor_directa", "pct_valor_regimen_esp",
+    "pct_contratos_ops", "pct_valor_pyme", "pct_valor_ene_feb_anual",
+    "pct_valor_nov_dic_anual", "hhi_ordenador", "duracion_mediana_dias",
+    "log_valor_total", "pct_valor_inversion", "tasa_contratos_modificados",
+]
+
+ARCHIVOS_SECOP = [
+    "contratos_preparados.csv",
+    "datos_region_andina.xls", "datos_region_andina.xlsx", "datos_region_andina.csv",
+    "SECOP_15-26.csv", "SECOP_23-26.csv",
+    "SECOP_200K_CON_TODOS_LOS_MEDICAMENTOS.csv",
+]
+
+
+def _normalizar_nombre_columna(nombre):
+    texto = unicodedata.normalize("NFKD", str(nombre))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.lower().strip()
+    texto = re.sub(r"[^a-z0-9]+", "_", texto).strip("_")
+    return texto
+
+
+def _normalizar_columnas_secop(df):
+    out = df.copy()
+    out.columns = [_normalizar_nombre_columna(c) for c in out.columns]
+    # Alias frecuentes entre descargas SECOP y el notebook original.
+    alias = {
+        "nombre_entidad": ["entidad", "nombre_de_la_entidad", "nombre_entidad_norm"],
+        "proveedor_adjudicado": ["proveedor", "nombre_proveedor", "proveedor_adjudicado_norm"],
+        "valor_del_contrato": ["valor_contrato", "valor_contrato_pesos", "valor"],
+        "id_contrato": ["id_del_contrato", "codigo_contrato", "referencia_del_contrato"],
+        "fecha_de_firma": ["fecha_firma", "fecha_de_firma_del_contrato"],
+        "fecha_de_inicio_del_contrato": ["fecha_inicio", "fecha_inicio_del_contrato"],
+        "fecha_de_fin_del_contrato": ["fecha_fin", "fecha_fin_del_contrato"],
+        "modalidad_de_contratacion": ["modalidad_contratacion", "modalidad"],
+        "tipo_de_contrato": ["tipo_contrato"],
+        "es_pyme": ["pyme", "es_mipyme"],
+        "destino_gasto": ["destino_del_gasto"],
+        "estado_contrato": ["estado_del_contrato", "estado"],
+        "n_mero_de_documento_ordenador_del_gasto": [
+            "numero_de_documento_del_ordenador_del_gasto",
+            "numero_documento_ordenador_del_gasto",
+            "documento_ordenador_del_gasto",
+            "n_mero_de_documento_ordenador_del_gasto",
+        ],
+    }
+    for destino, opciones in alias.items():
+        if destino not in out.columns:
+            for opcion in opciones:
+                if opcion in out.columns:
+                    out[destino] = out[opcion]
+                    break
+    # Los archivos preparados por el notebook ya pueden traer entidad_norm.
+    if "nombre_entidad" not in out.columns and "entidad_norm" in out.columns:
+        out["nombre_entidad"] = out["entidad_norm"]
+    if "proveedor_adjudicado" not in out.columns and "proveedor_adjudicado_norm" in out.columns:
+        out["proveedor_adjudicado"] = out["proveedor_adjudicado_norm"]
+    return out
+
+
+def leer_dataset_secop(archivo):
+    """Lee CSV, Excel o Parquet sin depender de rutas locales de Windows."""
+    nombre = getattr(archivo, "name", str(archivo)).lower()
+    if nombre.endswith(".parquet"):
+        df = pd.read_parquet(archivo)
+    elif nombre.endswith((".xls", ".xlsx")):
+        df = pd.read_excel(archivo)
+    else:
+        try:
+            df = pd.read_csv(archivo, encoding="utf-8-sig", low_memory=False)
+        except UnicodeDecodeError:
+            if hasattr(archivo, "seek"):
+                archivo.seek(0)
+            df = pd.read_csv(archivo, encoding="latin-1", low_memory=False)
+    return _normalizar_columnas_secop(df)
+
+
+def calcular_kpis_secop(datos):
+    """Replica los 13 indicadores usados como variables de entrada del PCA."""
+    df = _normalizar_columnas_secop(datos)
+    requeridas = ["valor_del_contrato", "nombre_entidad", "proveedor_adjudicado"]
+    faltantes = [c for c in requeridas if c not in df.columns]
+    if faltantes:
+        raise ValueError("Faltan columnas necesarias para calcular los KPI: " + ", ".join(faltantes))
+
+    # Completar columnas opcionales: su ausencia se trata como dato no disponible,
+    # no como una razón para detener todo el análisis.
+    opcionales = [
+        "id_contrato", "fecha_de_firma", "fecha_de_inicio_del_contrato",
+        "fecha_de_fin_del_contrato", "modalidad_de_contratacion", "tipo_de_contrato",
+        "es_pyme", "destino_gasto", "estado_contrato",
+        "n_mero_de_documento_ordenador_del_gasto",
+    ]
+    for col in opcionales:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df["valor_del_contrato"] = pd.to_numeric(df["valor_del_contrato"], errors="coerce")
+    for col in ["fecha_de_firma", "fecha_de_inicio_del_contrato", "fecha_de_fin_del_contrato"]:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+    for col in ["nombre_entidad", "proveedor_adjudicado"]:
+        df[col + "_norm"] = df[col].astype("string").str.strip()
+        df.loc[df[col + "_norm"].isin(["", "nan", "None", "<NA>"]), col + "_norm"] = pd.NA
+
+    if df["id_contrato"].isna().all():
+        df["id_contrato"] = [f"FILA_{i}" for i in range(len(df))]
+    else:
+        df["id_contrato"] = df["id_contrato"].astype("string").str.strip()
+        nulos_id = df["id_contrato"].isna() | df["id_contrato"].isin(["", "nan", "None"])
+        df.loc[nulos_id, "id_contrato"] = [f"FILA_{i}" for i in df.index[nulos_id]]
+
+    # El notebook elimina únicamente filas totalmente idénticas.
+    df = df.drop_duplicates().copy()
+    df_clean = df[
+        (df["valor_del_contrato"] > 0)
+        & df["nombre_entidad_norm"].notna()
+    ].copy()
+    if df_clean.empty:
+        raise ValueError("No quedaron contratos válidos: revise valor_del_contrato y nombre_entidad.")
+
+    # Base de entidades: cantidad de contratos únicos y valor acumulado.
+    entidades = df_clean.groupby("nombre_entidad_norm").agg(
+        total_contratos=("id_contrato", "nunique"),
+        total_valor=("valor_del_contrato", "sum"),
+    )
+    # KPI 1 y 2: concentración de valor y de número de contratos por proveedor.
+    prov_valor = df_clean.dropna(subset=["proveedor_adjudicado_norm"]).groupby(
+        ["nombre_entidad_norm", "proveedor_adjudicado_norm"]
+    )["valor_del_contrato"].sum()
+    participacion_valor = prov_valor / entidades["total_valor"]
+    entidades["hhi_valor"] = (participacion_valor.pow(2).groupby(level=0).sum()).reindex(entidades.index).fillna(0)
+
+    prov_n = df_clean.dropna(subset=["proveedor_adjudicado_norm"]).groupby(
+        ["nombre_entidad_norm", "proveedor_adjudicado_norm"]
+    )["id_contrato"].nunique()
+    participacion_n = prov_n / entidades["total_contratos"]
+    entidades["hhi_n"] = (participacion_n.pow(2).groupby(level=0).sum()).reindex(entidades.index).fillna(0)
+
+    modalidad = df_clean["modalidad_de_contratacion"].astype("string").fillna("")
+    directa = modalidad.str.contains("directa", case=False, na=False)
+    regimen = modalidad.str.contains("regimen especial|régimen especial", case=False, na=False)
+    valor_directa = df_clean.loc[directa].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    valor_regimen = df_clean.loc[regimen].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_directa"] = valor_directa.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+    entidades["pct_valor_regimen_esp"] = valor_regimen.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    tipo = df_clean["tipo_de_contrato"].astype("string").fillna("")
+    ops = tipo.str.contains("prestacion de servicios|prestación de servicios", case=False, na=False)
+    conteo_ops = df_clean.loc[ops].groupby("nombre_entidad_norm")["id_contrato"].nunique()
+    entidades["pct_contratos_ops"] = conteo_ops.reindex(entidades.index, fill_value=0) / entidades["total_contratos"]
+
+    pyme = df_clean["es_pyme"].astype("string").str.strip().str.upper().isin(["SI", "SÍ", "TRUE", "1"])
+    valor_pyme = df_clean.loc[pyme].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_pyme"] = valor_pyme.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    # KPI 7 y 8: promedio de la proporción anual en enero-febrero y noviembre-diciembre.
+    df_clean["anio_firma"] = df_clean["fecha_de_firma"].dt.year
+    df_clean["mes_firma"] = df_clean["fecha_de_firma"].dt.month
+    for nombre, meses, salida in [
+        ("ene_feb", [1, 2], "pct_valor_ene_feb_anual"),
+        ("nov_dic", [11, 12], "pct_valor_nov_dic_anual"),
+    ]:
+        df_clean["valor_temporal"] = np.where(df_clean["mes_firma"].isin(meses), df_clean["valor_del_contrato"], 0)
+        anual = df_clean.dropna(subset=["anio_firma"]).groupby(["nombre_entidad_norm", "anio_firma"]).agg(
+            total_anio=("valor_del_contrato", "sum"), valor_periodo=("valor_temporal", "sum")
+        )
+        anual["proporcion"] = anual["valor_periodo"] / anual["total_anio"].replace(0, np.nan)
+        entidades[salida] = anual.groupby(level=0)["proporcion"].mean().reindex(entidades.index).fillna(0)
+    df_clean.drop(columns=["valor_temporal"], inplace=True, errors="ignore")
+
+    # KPI 9: HHI del ordenador del gasto por año, promediado por entidad.
+    doc = df_clean["n_mero_de_documento_ordenador_del_gasto"].astype("string").str.strip()
+    df_clean["doc_ordenador_clean"] = doc.mask(doc.isin(["", "nan", "None", "0", "<NA>"]))
+    ord_anual = df_clean.dropna(subset=["doc_ordenador_clean", "anio_firma"]).groupby(
+        ["nombre_entidad_norm", "anio_firma", "doc_ordenador_clean"]
+    )["valor_del_contrato"].sum()
+    if len(ord_anual):
+        total_ordenadores = ord_anual.groupby(level=[0, 1]).sum()
+        hhi_anual = (ord_anual / total_ordenadores).pow(2).groupby(level=[0, 1]).sum()
+        hhi_ordenador = hhi_anual.groupby(level=0).mean()
+        entidades["hhi_ordenador"] = hhi_ordenador.reindex(entidades.index).fillna(1.0)
+    else:
+        entidades["hhi_ordenador"] = 1.0
+
+    # KPI 10: mediana de duración válida (0 a 3650 días).
+    dias = (df_clean["fecha_de_fin_del_contrato"] - df_clean["fecha_de_inicio_del_contrato"]).dt.days
+    dias = dias.where((dias >= 0) & (dias <= 3650))
+    df_clean["dias_reales"] = dias
+    duracion = df_clean.groupby("nombre_entidad_norm")["dias_reales"].median()
+    mediana_general = duracion.median()
+    entidades["duracion_mediana_dias"] = duracion.reindex(entidades.index).fillna(0 if pd.isna(mediana_general) else mediana_general)
+
+    # KPI 11: escala presupuestal e inversión.
+    entidades["log_valor_total"] = np.log1p(entidades["total_valor"])
+    destino = df_clean["destino_gasto"].astype("string").fillna("")
+    inversion = destino.str.contains("inversi[oó]n", case=False, na=False)
+    valor_inversion = df_clean.loc[inversion].groupby("nombre_entidad_norm")["valor_del_contrato"].sum()
+    entidades["pct_valor_inversion"] = valor_inversion.reindex(entidades.index, fill_value=0) / entidades["total_valor"]
+
+    # KPI 12: proporción de contratos modificados, cedidos o suspendidos.
+    estado = df_clean["estado_contrato"].astype("string").fillna("")
+    desviados = estado.str.contains("modificad|cedid|suspendid", case=False, na=False)
+    conteo_desviados = df_clean.loc[desviados].groupby("nombre_entidad_norm")["id_contrato"].nunique()
+    entidades["tasa_contratos_modificados"] = conteo_desviados.reindex(entidades.index, fill_value=0) / entidades["total_contratos"]
+
+    entidades = entidades.replace([np.inf, -np.inf], np.nan)
+    entidades[COLUMNAS_PCA] = entidades[COLUMNAS_PCA].fillna(0)
+    entidades.index.name = "entidad"
+    return df_clean, entidades.reset_index().rename(columns={"nombre_entidad_norm": "entidad"})
+
+
+def ejecutar_pca_kmeans(tabla_kpi):
+    """Escala los 13 KPI, calcula PCA y prepara métricas y clústeres."""
+    from sklearn.cluster import KMeans
+    from sklearn.decomposition import PCA
+    from sklearn.metrics import silhouette_score
+    from sklearn.preprocessing import StandardScaler
+
+    modelo = tabla_kpi[tabla_kpi["total_contratos"] >= 10].copy()
+    if len(modelo) < 3:
+        raise ValueError(
+            "Se necesitan al menos 3 entidades con 10 contratos o más para ejecutar PCA y K-Means. "
+            "El análisis KPI sí puede consultarse con menos registros."
+        )
+    X = modelo[COLUMNAS_PCA].apply(pd.to_numeric, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0)
+    escalador = StandardScaler()
+    X_scaled = escalador.fit_transform(X)
+    n_componentes = min(len(COLUMNAS_PCA), X_scaled.shape[0], X_scaled.shape[1])
+    pca = PCA(n_components=n_componentes)
+    X_pca = pca.fit_transform(X_scaled)
+    varianza = pd.DataFrame({
+        "Componente": [f"PC{i+1}" for i in range(n_componentes)],
+        "Valor_Propio": pca.explained_variance_,
+        "Varianza_%": pca.explained_variance_ratio_ * 100,
+        "Acumulada_%": np.cumsum(pca.explained_variance_ratio_) * 100,
+    })
+    k_kaiser = int((varianza["Valor_Propio"] > 1).sum())
+    n_cluster_pc = min(4, n_componentes, max(1, k_kaiser))
+    if n_cluster_pc < 1:
+        n_cluster_pc = min(2, n_componentes)
+    X_cluster = X_pca[:, :n_cluster_pc]
+
+    max_k = min(8, len(modelo) - 1)
+    filas_metricas = []
+    for k in range(2, max_k + 1):
+        km = KMeans(n_clusters=k, random_state=42, n_init=20)
+        etiquetas = km.fit_predict(X_cluster)
+        silueta = silhouette_score(X_cluster, etiquetas) if len(set(etiquetas)) > 1 else np.nan
+        filas_metricas.append({"k": k, "Inercia": km.inertia_, "Silhouette_Score": silueta})
+    metricas_k = pd.DataFrame(filas_metricas)
+
+    k_final = min(4, len(modelo) - 1)
+    k_final = max(2, k_final)
+    km_final = KMeans(n_clusters=k_final, random_state=42, n_init=30)
+    modelo["Cluster"] = km_final.fit_predict(X_cluster)
+    modelo["PC1"] = X_pca[:, 0]
+    modelo["PC2"] = X_pca[:, 1] if X_pca.shape[1] > 1 else 0.0
+    cargas = pd.DataFrame(
+        pca.components_[:max(1, k_kaiser)].T,
+        index=COLUMNAS_PCA,
+        columns=[f"PC{i+1}" for i in range(max(1, k_kaiser))],
+    )
+    perfil = modelo.groupby("Cluster")[COLUMNAS_PCA].mean().reset_index()
+    return modelo, varianza, cargas, metricas_k, perfil, k_kaiser, n_cluster_pc
 
 
 # ----- Inicio antes de ingresar -----
@@ -897,12 +796,12 @@ if len(filtrado) > 0:
     )
     st.markdown(f'<div class="barra-azul"><b>Focos Andinos:</b> {focos_texto}</div>', unsafe_allow_html=True)
 
-tab_noticias, tab_resumen, tab_mapa, tab_dashboard, tab_kpi_pca, tab_senales_rend, tab_judiciales, tab_red, tab_ods = st.tabs([
+tab_noticias, tab_resumen, tab_mapa, tab_dashboard, tab_kpis, tab_senales_rend, tab_judiciales, tab_red, tab_ods = st.tabs([
     "Noticias Andina",
     "Resumen",
     "Mapa",
     "Dashboard interactivo",
-    "KPI · PCA y K-Means",
+    "KPIs · PCA y K-Means",
     "Señales y Rendimiento",
     "Servicios Judiciales",
     "Red",
@@ -1018,185 +917,158 @@ with tab_dashboard:
         )
 
 
+# ----- KPIs · PCA y K-Means -----
 
-# ----- KPI, PCA y K-Means -----
-
-with tab_kpi_pca:
-    st.subheader("Indicadores KPI, reducción de dimensionalidad y segmentación")
-    st.write(
-        "Este módulo reproduce el flujo analítico del notebook: calcula indicadores "
-        "por entidad, aplica PCA y segmenta las entidades mediante K-Means."
-    )
-    st.info(
-        "Este análisis requiere el dataset transaccional de contratos SECOP II "
-        "(una fila por contrato o registro de contrato), no el CSV agregado de "
-        "métricas que alimenta el resumen general."
+with tab_kpis:
+    st.subheader("Indicadores de contratación pública · SECOP II")
+    st.caption(
+        "Este módulo calcula indicadores por entidad a partir de registros individuales de contratos. "
+        "Es independiente del CSV agregado que alimenta el resumen general del portal."
     )
 
     archivo_kpi = st.file_uploader(
-        "Cargar dataset SECOP para el análisis KPI",
+        "Cargar dataset SECOP II (CSV, XLS o XLSX)",
         type=["csv", "xls", "xlsx"],
-        key="archivo_kpi_pca",
-        help=(
-            "Puedes subir el archivo de contratos original o preparado. "
-            "También se buscarán automáticamente archivos SECOP en la raíz del repositorio."
-        ),
+        key="archivo_secop_kpi",
+        help="Puedes cargar el archivo desde tu equipo o dejar uno de los archivos SECOP reconocidos en la raíz del repositorio.",
     )
 
-    try:
-        datos_kpi, fuente_kpi = cargar_dataset_kpi(archivo_kpi)
-        if datos_kpi is None:
-            st.warning(
-                "No se encontró un dataset SECOP compatible en el repositorio. "
-                "Sube aquí el archivo datos_region_andina.xls/.xlsx o su versión CSV."
-            )
-        else:
-            st.caption(
-                f"Fuente: {fuente_kpi} · {len(datos_kpi):,} filas · "
-                f"{len(datos_kpi.columns)} columnas"
-            )
-            if st.checkbox("Ver muestra del dataset cargado", key="ver_muestra_kpi"):
-                st.dataframe(datos_kpi.head(10), use_container_width=True)
+    datos_secop = None
+    fuente_secop = None
+    if archivo_kpi is not None:
+        try:
+            datos_secop = leer_dataset_secop(archivo_kpi)
+            fuente_secop = f"Archivo cargado: {archivo_kpi.name}"
+        except Exception as exc:
+            st.error(f"No fue posible leer el archivo: {exc}")
+    else:
+        for candidato in ARCHIVOS_SECOP:
+            if os.path.exists(candidato):
+                try:
+                    datos_secop = leer_dataset_secop(candidato)
+                    fuente_secop = f"Repositorio: {candidato}"
+                    break
+                except Exception as exc:
+                    st.warning(f"Se encontró {candidato}, pero no se pudo leer: {exc}")
 
-            if st.button("Ejecutar análisis KPI + PCA + K-Means", key="ejecutar_kpi_pca"):
-                with st.spinner("Calculando indicadores y entrenando los modelos..."):
-                    try:
-                        resultado_kpi = calcular_kpis_pca(datos_kpi)
-                        st.session_state["resultado_kpi_pca"] = resultado_kpi
-                        st.session_state["fuente_kpi_pca"] = fuente_kpi
-                    except Exception as exc:
-                        st.session_state.pop("resultado_kpi_pca", None)
-                        st.error(f"No fue posible ejecutar el análisis: {exc}")
+    if datos_secop is None:
+        st.info(
+            "No se encontró un dataset transaccional SECOP II. Para activar el análisis, "
+            "carga un CSV/Excel desde aquí o agrega uno de estos archivos a la raíz del repositorio: "
+            + ", ".join(ARCHIVOS_SECOP)
+        )
+        st.markdown("**Columnas mínimas requeridas:** `valor_del_contrato`, `nombre_entidad` y `proveedor_adjudicado`. "
+                    "Las demás columnas enriquecen los indicadores; si faltan, los KPI correspondientes se calcularán como cero o con el valor de respaldo indicado.")
+    else:
+        try:
+            df_secop_limpio, tabla_kpi = calcular_kpis_secop(datos_secop)
+            st.caption(f"Fuente: {fuente_secop} · {len(datos_secop):,} filas leídas · {len(df_secop_limpio):,} contratos válidos · {len(tabla_kpi):,} entidades")
 
-            resultado_kpi = st.session_state.get("resultado_kpi_pca")
-            if st.session_state.get("fuente_kpi_pca") != fuente_kpi:
-                resultado_kpi = None
-            if resultado_kpi is not None:
-                st.divider()
-                st.subheader("1. Resumen del procesamiento")
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Contratos válidos", f"{resultado_kpi['registros_validos']:,}")
-                m2.metric("Entidades analizadas", f"{len(resultado_kpi['df_entidades']):,}")
-                m3.metric("Entidades en el modelo", f"{len(resultado_kpi['df_modelo']):,}")
-                m4.metric("Clústeres finales", resultado_kpi["k_final"])
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Entidades", f"{len(tabla_kpi):,}")
+            k2.metric("Contratos válidos", f"{len(df_secop_limpio):,}")
+            k3.metric("Valor contratado", f"${tabla_kpi['total_valor'].sum():,.0f}")
+            k4.metric("Entidades para PCA", f"{int((tabla_kpi['total_contratos'] >= 10).sum()):,}")
 
-                st.subheader("2. Indicadores KPI por entidad")
-                st.dataframe(
-                    resultado_kpi["df_entidades"].sort_values(
-                        "total_valor", ascending=False
-                    ),
-                    hide_index=True, use_container_width=True
-                )
+            sub_kpi, sub_pca, sub_kmeans, sub_datos = st.tabs([
+                "Indicadores KPI", "Análisis PCA", "Segmentación K-Means", "Datos y descarga"
+            ])
 
-                st.subheader("3. Análisis de componentes principales (PCA)")
-                st.caption(
-                    f"Criterio de Kaiser: {resultado_kpi['k_kaiser']} componente(s) "
-                    "con valor propio mayor que 1."
+            with sub_kpi:
+                st.markdown("**Indicadores calculados por entidad**")
+                nombre_kpi = {
+                    "entidad": "Entidad", "total_contratos": "Total contratos", "total_valor": "Valor total",
+                    "hhi_valor": "HHI por valor", "hhi_n": "HHI por número",
+                    "pct_valor_directa": "% valor contratación directa", "pct_valor_regimen_esp": "% valor régimen especial",
+                    "pct_contratos_ops": "% contratos OPS", "pct_valor_pyme": "% valor adjudicado a PYMES",
+                    "pct_valor_ene_feb_anual": "% valor enero-febrero (promedio anual)",
+                    "pct_valor_nov_dic_anual": "% valor noviembre-diciembre (promedio anual)",
+                    "hhi_ordenador": "HHI ordenador del gasto", "duracion_mediana_dias": "Duración mediana (días)",
+                    "log_valor_total": "Log valor total", "pct_valor_inversion": "% valor inversión",
+                    "tasa_contratos_modificados": "Tasa contratos modificados",
+                }
+                vista = tabla_kpi.rename(columns=nombre_kpi).copy()
+                columnas_pct = [c for c in vista.columns if c.startswith("%") or c.startswith("Tasa")]
+                for c in columnas_pct:
+                    vista[c] = (vista[c] * 100).round(2)
+                st.dataframe(vista.sort_values("Valor total", ascending=False), hide_index=True, use_container_width=True)
+                st.caption("Los indicadores porcentuales se muestran en escala 0–100 %. HHI se conserva en escala 0–1.")
+                metrica = st.selectbox(
+                    "Indicador para comparar entidades",
+                    ["hhi_valor", "hhi_n", "pct_valor_directa", "pct_valor_regimen_esp", "pct_contratos_ops", "pct_valor_pyme", "pct_valor_ene_feb_anual", "pct_valor_nov_dic_anual", "hhi_ordenador", "duracion_mediana_dias", "pct_valor_inversion", "tasa_contratos_modificados"],
+                    format_func=lambda x: nombre_kpi.get(x, x), key="kpi_metrica_comparar",
                 )
-                st.dataframe(
-                    resultado_kpi["tabla_varianza"].round(4),
-                    hide_index=True, use_container_width=True
-                )
-                fig_varianza = px.bar(
-                    resultado_kpi["tabla_varianza"],
-                    x="Componente", y="Varianza (%)",
-                    title="Varianza explicada por componente",
-                    color_discrete_sequence=["#0F294A"],
-                )
-                fig_varianza.add_scatter(
-                    x=resultado_kpi["tabla_varianza"]["Componente"],
-                    y=resultado_kpi["tabla_varianza"]["Acumulada (%)"],
-                    mode="lines+markers", name="Varianza acumulada (%)",
-                    yaxis="y2",
-                )
-                fig_varianza.update_layout(
-                    yaxis2=dict(title="Acumulada (%)", overlaying="y", side="right"),
-                    height=420,
-                )
-                st.plotly_chart(fig_varianza, use_container_width=True)
-                st.markdown("**Cargas de los componentes principales**")
-                st.dataframe(
-                    resultado_kpi["cargas"].round(4),
-                    use_container_width=True
-                )
+                top_entidades = tabla_kpi.nlargest(20, metrica)
+                st.plotly_chart(px.bar(top_entidades, x="entidad", y=metrica, title=f"20 entidades con mayor valor: {nombre_kpi.get(metrica, metrica)}"), use_container_width=True)
 
-                st.subheader("4. Selección del número de clústeres")
-                metricas_k = resultado_kpi["metricas_k"]
-                if not metricas_k.empty:
-                    codo, silueta = st.columns(2)
-                    with codo:
-                        st.plotly_chart(
-                            px.line(
-                                metricas_k, x="k", y="Inercia", markers=True,
-                                title="Método del codo (inercia)",
-                                color_discrete_sequence=["#0F294A"],
-                            ),
-                            use_container_width=True,
-                        )
-                    with silueta:
-                        st.plotly_chart(
-                            px.line(
-                                metricas_k, x="k", y="Silhouette", markers=True,
-                                title="Coeficiente de silueta",
-                                color_discrete_sequence=["#C81E1E"],
-                            ),
-                            use_container_width=True,
-                        )
-                    st.dataframe(metricas_k.round(4), hide_index=True, use_container_width=True)
+            # PCA y K-Means se calculan una vez para las pestañas de análisis.
+            resultado_modelo = None
+            error_modelo = None
+            try:
+                resultado_modelo = ejecutar_pca_kmeans(tabla_kpi)
+            except Exception as exc:
+                error_modelo = str(exc)
 
-                st.subheader(
-                    f"5. Segmentación K-Means (k = {resultado_kpi['k_final']})"
-                )
-                df_clusters = resultado_kpi["df_modelo"]
-                fig_pca = px.scatter(
-                    df_clusters, x="PC1", y="PC2", color="Cluster",
-                    hover_name="entidad_norm",
-                    hover_data=["total_contratos", "total_valor"],
-                    title="Segmentación de entidades en el plano PCA",
-                    labels={
-                        "PC1": f"PC1 ({resultado_kpi['varianza_pc1']:.2f}%)",
-                        "PC2": f"PC2 ({resultado_kpi['varianza_pc2']:.2f}%)",
-                        "Cluster": "Clúster",
-                    },
-                )
-                fig_pca.add_hline(y=0, line_dash="dash", line_color="gray")
-                fig_pca.add_vline(x=0, line_dash="dash", line_color="gray")
-                st.plotly_chart(fig_pca, use_container_width=True)
+            if resultado_modelo is None:
+                with sub_pca:
+                    st.warning(error_modelo)
+                with sub_kmeans:
+                    st.warning(error_modelo)
+            else:
+                modelo, varianza, cargas, metricas_k, perfil, k_kaiser, n_cluster_pc = resultado_modelo
+                with sub_pca:
+                    st.markdown("**Varianza explicada por componente principal**")
+                    st.metric("Componentes con valor propio > 1 (Kaiser)", k_kaiser)
+                    st.dataframe(varianza.round(4), hide_index=True, use_container_width=True)
+                    st.plotly_chart(px.bar(varianza, x="Componente", y="Varianza_%", title="Varianza explicada por componente"), use_container_width=True)
+                    st.plotly_chart(px.line(varianza, x="Componente", y="Acumulada_%", markers=True, title="Varianza acumulada"), use_container_width=True)
+                    st.markdown("**Cargas de los componentes principales**")
+                    st.dataframe(cargas.round(3), use_container_width=True)
+                    st.caption(f"K-Means utiliza los primeros {n_cluster_pc} componentes disponibles, hasta un máximo de cuatro.")
 
-                conteo_clusters = (
-                    df_clusters.groupby("Cluster", as_index=False)
-                    .agg(entidades=("entidad_norm", "count"))
-                )
-                col_graf, col_tabla = st.columns([1, 2])
-                with col_graf:
-                    st.plotly_chart(
-                        px.pie(
-                            conteo_clusters, names="Cluster", values="entidades",
-                            title="Distribución de entidades por clúster",
-                        ),
-                        use_container_width=True,
-                    )
-                with col_tabla:
-                    st.markdown("**Perfil promedio de los KPI por clúster**")
-                    st.dataframe(
-                        resultado_kpi["perfil_clusters"].T.round(4),
-                        use_container_width=True,
-                    )
+                with sub_kmeans:
+                    st.markdown("**Evaluación del número de clústeres**")
+                    if len(metricas_k):
+                        st.dataframe(metricas_k.round(4), hide_index=True, use_container_width=True)
+                        col_codo, col_silueta = st.columns(2)
+                        with col_codo:
+                            st.plotly_chart(px.line(metricas_k, x="k", y="Inercia", markers=True, title="Método del codo"), use_container_width=True)
+                        with col_silueta:
+                            st.plotly_chart(px.line(metricas_k, x="k", y="Silhouette_Score", markers=True, title="Coeficiente de silueta"), use_container_width=True)
+                    st.markdown("**Segmentación final (K-Means)**")
+                    st.caption(f"Se utiliza k={modelo['Cluster'].nunique()} y los primeros {n_cluster_pc} componentes principales. La asignación es reproducible (random_state=42).")
+                    st.plotly_chart(px.scatter(modelo, x="PC1", y="PC2", color=modelo["Cluster"].astype(str), hover_name="entidad", hover_data=["total_contratos", "total_valor"], title="Entidades agrupadas en el plano PCA (PC1 vs. PC2)", labels={"color": "Clúster"}), use_container_width=True)
+                    distribucion = modelo["Cluster"].value_counts().sort_index().rename_axis("Cluster").reset_index(name="Entidades")
+                    st.plotly_chart(px.bar(distribucion, x="Cluster", y="Entidades", title="Cantidad de entidades por clúster"), use_container_width=True)
+                    st.markdown("**Perfil promedio de KPI por clúster**")
+                    st.dataframe(perfil.round(4), hide_index=True, use_container_width=True)
+                    ejemplos = modelo.sort_values(["Cluster", "total_valor"], ascending=[True, False]).groupby("Cluster").head(5)
+                    st.markdown("**Entidades representativas por clúster (mayor presupuesto)**")
+                    st.dataframe(ejemplos[["Cluster", "entidad", "total_contratos", "total_valor", "PC1", "PC2"]], hide_index=True, use_container_width=True)
 
-                st.markdown("**Entidades clasificadas**")
-                st.dataframe(
-                    df_clusters.sort_values(["Cluster", "total_valor"], ascending=[True, False]),
-                    hide_index=True, use_container_width=True,
-                )
-                csv_clusters = df_clusters.to_csv(index=False).encode("utf-8-sig")
+            with sub_datos:
+                st.markdown("**Vista de los registros utilizados**")
+                st.dataframe(df_secop_limpio.head(500), hide_index=True, use_container_width=True)
+                st.caption("Se muestran como máximo 500 filas en pantalla para evitar sobrecargar el navegador.")
                 st.download_button(
-                    "Descargar entidades y clústeres (CSV)",
-                    data=csv_clusters,
-                    file_name="entidades_kpi_pca_kmeans.csv",
+                    "Descargar indicadores KPI (CSV)",
+                    data=tabla_kpi.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="indicadores_kpi_secop.csv",
                     mime="text/csv",
+                    use_container_width=True,
                 )
-    except Exception as exc:
-        st.error(f"Error al cargar el dataset para KPI: {exc}")
+                if resultado_modelo is not None:
+                    modelo_exportar = resultado_modelo[0]
+                    st.download_button(
+                        "Descargar entidades con clúster (CSV)",
+                        data=modelo_exportar.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="entidades_kmeans_pca.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+        except Exception as exc:
+            st.error(f"No se pudo completar el análisis KPI: {exc}")
+            st.info("Verifica que el archivo incluya al menos valor_del_contrato, nombre_entidad y proveedor_adjudicado.")
 
 
 # ----- Señales y Rendimiento -----
