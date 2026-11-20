@@ -16,6 +16,8 @@ import plotly.graph_objects as go
 import pymysql
 import requests
 import streamlit as st
+import tempfile
+import gdown
 
 try:
     from enviar_telegram import enviar_telegram
@@ -527,35 +529,62 @@ def extraer_id_google_drive(enlace):
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def cargar_dataset_kpi_drive(enlace):
-    """Descarga exclusivamente el CSV de KPI, sin alterar las otras fuentes del portal."""
+    """Descarga el CSV de Google Drive para el modulo KPI."""
+
     archivo_id = extraer_id_google_drive(enlace)
-    url = "https://drive.google.com/uc"
-    with requests.Session() as sesion:
-        respuesta = sesion.get(url, params={"export": "download", "id": archivo_id}, timeout=120)
-        respuesta.raise_for_status()
-        # Algunos archivos grandes requieren confirmar la advertencia de Drive.
-        token = next((valor for clave, valor in sesion.cookies.items()
-                      if clave.startswith("download_warning")), None)
-        if token:
-            respuesta = sesion.get(url, params={"export": "download", "id": archivo_id,
-                                              "confirm": token}, timeout=120)
-            respuesta.raise_for_status()
-        contenido = respuesta.content
-        tipo = respuesta.headers.get("Content-Type", "").lower()
-        if not contenido:
-            raise ValueError("Google Drive devolvió un archivo vacío.")
-        if "text/html" in tipo or contenido[:512].lstrip().lower().startswith((b"<!doctype html", b"<html")):
-            raise ValueError("Google Drive devolvió una página HTML en lugar del CSV. Revisa los permisos del archivo y si requiere confirmación de descarga.")
+
+    with tempfile.TemporaryDirectory() as carpeta:
+        ruta = os.path.join(carpeta, "dataset_kpi.csv")
+
+        descargado = gdown.download(
+            id=archivo_id,
+            output=ruta,
+            quiet=True
+        )
+
+        if not descargado or not os.path.isfile(ruta):
+            raise ValueError(
+                "No se pudo descargar el archivo desde Google Drive. "
+                "Verifica que sea publico y permita descargas."
+            )
+
+        with open(ruta, "rb") as archivo:
+            contenido = archivo.read()
+
+    if not contenido:
+        raise ValueError("El archivo descargado esta vacio.")
+
+    if contenido[:1024].lstrip().lower().startswith(
+        (b"<!doctype html", b"<html")
+    ):
+        raise ValueError(
+            "Google Drive devolvio HTML en lugar del CSV."
+        )
+
     ultimo_error = None
+
     for codificacion in ("utf-8-sig", "latin-1"):
         try:
-            datos = pd.read_csv(io.BytesIO(contenido), sep=None, engine="python", encoding=codificacion)
+            datos = pd.read_csv(
+                io.BytesIO(contenido),
+                sep=None,
+                engine="python",
+                encoding=codificacion
+            )
+
             if len(datos.columns) < 2:
-                raise ValueError("El CSV no parece tener varias columnas; comprueba el separador y el archivo.")
+                raise ValueError(
+                    "El CSV no contiene suficientes columnas."
+                )
+
             return _normalizar_columnas_secop(datos)
+
         except (UnicodeError, pd.errors.ParserError, ValueError) as exc:
             ultimo_error = exc
-    raise ValueError(f"No se pudo interpretar el CSV descargado: {ultimo_error}")
+
+    raise ValueError(
+        f"No se pudo interpretar el CSV: {ultimo_error}"
+    )
 
 
 def leer_dataset_secop(archivo):
