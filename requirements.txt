@@ -3,3 +3,6 @@ pandas
 plotly
 pymysql
 requests
+scikit-learn
+openpyxl
+xlrd
