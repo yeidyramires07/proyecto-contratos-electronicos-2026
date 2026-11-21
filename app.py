@@ -862,7 +862,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-sesion = st.session_state["sesion"]
+sesion = st.session_state.get("sesion")
+
+if sesion is None:
+    st.warning("No hay una sesión activa. Inicia sesión nuevamente.")
+    st.stop()
 rol = sesion["rol"]
 es_admin = rol == "Administrador"
 
