@@ -509,7 +509,7 @@ def _normalizar_columnas_secop(df):
 
 # Enlace del CSV de SECOP II almacenado en Google Drive.
 # Comparte el archivo como "Cualquier persona con el enlace" (Lector).
-ENLACE_DATASET_KPI = "https://drive.google.com/file/d/1x9HibipRQuvbhp-_pUfRhy74CJEnLl9L/view?usp=sharing"
+ENLACE_DATASET_KPI = ENLACE_DATASET_KPI = "https://github.com/yeidyramires07/proyecto-contratos-electronicos-2026/releases/download/datos-kpi-v1/datos_region_andina.csv.gz"
 
 
 def extraer_id_google_drive(enlace):
@@ -528,82 +528,84 @@ def extraer_id_google_drive(enlace):
     raise ValueError("El enlace no contiene un ID de archivo válido de Google Drive.")
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def cargar_dataset_kpi_drive(enlace):
-    """Descarga el CSV de Google Drive para el modulo KPI."""
+    """Descarga el dataset KPI desde GitHub Releases."""
 
-    archivo_id = extraer_id_google_drive(enlace)
-
-        # Carpeta persistente para recuperar descargas interrumpidas
     carpeta = os.path.join(
         tempfile.gettempdir(),
         "secop_kpi_descargas"
     )
     os.makedirs(carpeta, exist_ok=True)
 
-    ruta = os.path.join(
-        carpeta,
-        f"dataset_{archivo_id}.csv.gz"
-    )
+    ruta = os.path.join(carpeta, "datos_region_andina.csv.gz")
 
-    # Si el archivo completo es antiguo, descargarlo de nuevo
-    if os.path.isfile(ruta):
-        antiguedad = time.time() - os.path.getmtime(ruta)
-        if antiguedad > 1800:
-            os.remove(ruta)
+    # Descargar solo cuando no exista una copia local
+    if not os.path.isfile(ruta):
+        temporal = ruta + ".part"
 
-    descargado = gdown.download(
-        id=archivo_id,
-        output=ruta,
-        quiet=True,
-        resume=True,
-        retries=3
-    )
+        try:
+            with requests.get(
+                enlace,
+                stream=True,
+                timeout=(20, 180)
+            ) as respuesta:
 
-    if not descargado or not os.path.isfile(ruta):
-        raise ValueError(
-            "La descarga no se completo. "
-            "Vuelve a intentarlo para reanudarla."
-        )
+                respuesta.raise_for_status()
 
-    with open(ruta, "rb") as archivo:
-        contenido = archivo.read()
+                with open(temporal, "wb") as archivo:
+                    for bloque in respuesta.iter_content(
+                        chunk_size=1024 * 1024
+                    ):
+                        if bloque:
+                            archivo.write(bloque)
 
-    if not contenido:
-        raise ValueError("El archivo descargado esta vacio.")
+            # Comprobar que descargamos un GZIP
+            with open(temporal, "rb") as archivo:
+                if archivo.read(2) != b"\x1f\x8b":
+                    raise ValueError(
+                        "El enlace no devolvio un GZIP valido."
+                    )
 
-    if contenido[:1024].lstrip().lower().startswith(
-        (b"<!doctype html", b"<html")
-    ):
-        raise ValueError(
-            "Google Drive devolvio HTML en lugar del CSV."
-        )
+            os.replace(temporal, ruta)
+
+        except Exception:
+            if os.path.exists(temporal):
+                os.remove(temporal)
+            raise
 
     ultimo_error = None
 
     for codificacion in ("utf-8-sig", "latin-1"):
         try:
             datos = pd.read_csv(
-                io.BytesIO(contenido),
+                ruta,
+                compression="gzip",
                 sep=None,
                 engine="python",
-                encoding=codificacion,
-                compression="gzip"
+                encoding=codificacion
             )
 
             if len(datos.columns) < 2:
                 raise ValueError(
-                    "El CSV no contiene suficientes columnas."
+                    "El dataset no contiene suficientes columnas."
                 )
 
             return _normalizar_columnas_secop(datos)
 
         except (UnicodeError, pd.errors.ParserError, ValueError) as exc:
             ultimo_error = exc
+        except (EOFError, OSError) as exc:
+            if os.path.isfile(ruta):
+                os.remove(ruta)
+            raise ValueError(
+                f"Archivo GZIP incompleto o dañado: {exc}"
+            ) from exc
 
     raise ValueError(
-        f"No se pudo interpretar el CSV: {ultimo_error}"
+        f"No se pudo interpretar el dataset: {ultimo_error}"
     )
+
 
 
 def leer_dataset_secop(archivo):
@@ -1030,13 +1032,14 @@ with tab_kpis:
     )
 
     datos_secop = None
-    fuente_secop = "Google Drive (CSV SECOP II)"
+    fuente_secop = "Github Releases (CSV SECOP II)"
 
-    if st.button("Actualizar dataset desde Google Drive", key="actualizar_dataset_kpi"):
+    if st.button("Actualizar dataset desde GitHub", key="actualizar_dataset_kpi"):
+
         ruta_cache = os.path.join(
             tempfile.gettempdir(),
             "secop_kpi_descargas",
-            f"dataset_{extraer_id_google_drive(ENLACE_DATASET_KPI)}.csv.gz"
+            "datos_region_andina.csv.gz"
         )
 
         if os.path.isfile(ruta_cache):
@@ -1045,17 +1048,18 @@ with tab_kpis:
         cargar_dataset_kpi_drive.clear()
 
     try:
-        with st.spinner("Descargando dataset KPI desde Google Drive..."):
+        with st.spinner("Descargando dataset KPI desde GitHub Releases..."):
             datos_secop = cargar_dataset_kpi_drive(ENLACE_DATASET_KPI)
-        st.success("Dataset KPI cargado correctamente desde Google Drive.")
+        st.success("Dataset KPI cargado correctamente desde GitHub Releases.")
     except Exception as exc:
         st.error(f"No fue posible cargar el dataset KPI: {exc}")
 
     if datos_secop is None:
-        st.info(
-            "Verifica ENLACE_DATASET_KPI, los permisos de acceso (cualquier persona con el enlace) "
-            "y que el archivo sea un CSV de contratos SECOP II."
-        )
+    st.info(
+        "No fue posible cargar el dataset desde GitHub Releases. "
+        "Verifica que el enlace de descarga sea correcto, "
+        "que el Release esté publicado y que el archivo tenga formato .csv.gz."
+    )
         st.markdown("**Columnas mínimas requeridas:** `valor_del_contrato`, "
                     "`nombre_entidad` y `proveedor_adjudicado`.")
     else:
