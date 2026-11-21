@@ -509,7 +509,7 @@ def _normalizar_columnas_secop(df):
 
 # Enlace del CSV de SECOP II almacenado en Google Drive.
 # Comparte el archivo como "Cualquier persona con el enlace" (Lector).
-ENLACE_DATASET_KPI = "https://drive.google.com/file/d/1UoQ-lg3Z_I_14e0Vu__xkLvgBhk9edH0/view?usp=sharing"
+ENLACE_DATASET_KPI = "https://drive.google.com/file/d/1x9HibipRQuvbhp-_pUfRhy74CJEnLl9L/view?usp=sharing"
 
 
 def extraer_id_google_drive(enlace):
@@ -543,7 +543,7 @@ def cargar_dataset_kpi_drive(enlace):
 
     ruta = os.path.join(
         carpeta,
-        f"dataset_{archivo_id}.csv"
+        f"dataset_{archivo_id}.csv.gz"
     )
 
     # Si el archivo completo es antiguo, descargarlo de nuevo
@@ -587,7 +587,8 @@ def cargar_dataset_kpi_drive(enlace):
                 io.BytesIO(contenido),
                 sep=None,
                 engine="python",
-                encoding=codificacion
+                encoding=codificacion,
+                compression="gzip"
             )
 
             if len(datos.columns) < 2:
@@ -1035,7 +1036,7 @@ with tab_kpis:
         ruta_cache = os.path.join(
             tempfile.gettempdir(),
             "secop_kpi_descargas",
-            f"dataset_{extraer_id_google_drive(ENLACE_DATASET_KPI)}.csv"
+            f"dataset_{extraer_id_google_drive(ENLACE_DATASET_KPI)}.csv.gz"
         )
 
         if os.path.isfile(ruta_cache):
