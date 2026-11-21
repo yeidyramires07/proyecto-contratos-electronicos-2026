@@ -534,23 +534,40 @@ def cargar_dataset_kpi_drive(enlace):
 
     archivo_id = extraer_id_google_drive(enlace)
 
-    with tempfile.TemporaryDirectory() as carpeta:
-        ruta = os.path.join(carpeta, "dataset_kpi.csv")
+        # Carpeta persistente para recuperar descargas interrumpidas
+    carpeta = os.path.join(
+        tempfile.gettempdir(),
+        "secop_kpi_descargas"
+    )
+    os.makedirs(carpeta, exist_ok=True)
 
-        descargado = gdown.download(
-            id=archivo_id,
-            output=ruta,
-            quiet=True
+    ruta = os.path.join(
+        carpeta,
+        f"dataset_{archivo_id}.csv"
+    )
+
+    # Si el archivo completo es antiguo, descargarlo de nuevo
+    if os.path.isfile(ruta):
+        antiguedad = time.time() - os.path.getmtime(ruta)
+        if antiguedad > 1800:
+            os.remove(ruta)
+
+    descargado = gdown.download(
+        id=archivo_id,
+        output=ruta,
+        quiet=True,
+        resume=True,
+        retries=3
+    )
+
+    if not descargado or not os.path.isfile(ruta):
+        raise ValueError(
+            "La descarga no se completo. "
+            "Vuelve a intentarlo para reanudarla."
         )
 
-        if not descargado or not os.path.isfile(ruta):
-            raise ValueError(
-                "No se pudo descargar el archivo desde Google Drive. "
-                "Verifica que sea publico y permita descargas."
-            )
-
-        with open(ruta, "rb") as archivo:
-            contenido = archivo.read()
+    with open(ruta, "rb") as archivo:
+        contenido = archivo.read()
 
     if not contenido:
         raise ValueError("El archivo descargado esta vacio.")
@@ -1015,6 +1032,15 @@ with tab_kpis:
     fuente_secop = "Google Drive (CSV SECOP II)"
 
     if st.button("Actualizar dataset desde Google Drive", key="actualizar_dataset_kpi"):
+        ruta_cache = os.path.join(
+            tempfile.gettempdir(),
+            "secop_kpi_descargas",
+            f"dataset_{extraer_id_google_drive(ENLACE_DATASET_KPI)}.csv"
+        )
+
+        if os.path.isfile(ruta_cache):
+            os.remove(ruta_cache)
+
         cargar_dataset_kpi_drive.clear()
 
     try:
