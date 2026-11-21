@@ -25,6 +25,7 @@ except Exception:
     enviar_telegram = None
 
 st.set_page_config(page_title="CONTRATACIÓN ANDINA", layout="wide")
+st.caption("VERSIÓN ACTUALIZADA CON KPI - PRUEBA")
 
 COORDENADAS = {
     "Antioquia": (6.244, -75.574),
