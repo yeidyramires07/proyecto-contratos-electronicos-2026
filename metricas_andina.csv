@@ -1,12 +1,10 @@
-
-departamento,entidad,sector,contratos,valor_total_cop,hhi_valor,cr4_valor,pct_contratacion_directa,pct_modificados,riesgo_score,nivel_alerta
+﻿departamento,entidad,sector,contratos,valor_total_cop,hhi_valor,cr4_valor,pct_contratacion_directa,pct_modificados,riesgo_score,nivel_alerta
 Huila,Consolidado Huila,Región Andina,8050,1076567730238.11,980.46,37.56,73.83,9.83,75.3,Alta
 Quindío,Consolidado Quindío,Región Andina,10334,467812920949.34,340.31,33.36,89.02,17.47,60.86,Alta
 Caldas,Consolidado Caldas,Región Andina,8260,1083788063820.65,518.0,31.7,70.48,10.24,55.74,Alta
 Distrito Capital de Bogotá,Consolidado Distrito Capital de Bogotá,Región Andina,159641,48348043902220.02,158.19,22.01,76.01,25.97,54.05,Media
 Boyacá,Consolidado Boyacá,Región Andina,12604,1437827329417.88,434.34,26.37,72.96,9.18,52.68,Media
 Risaralda,Consolidado Risaralda,Región Andina,10035,899760319513.87,140.59,17.44,87.92,11.72,48.61,Media
-Cundinamarca,Consolidado Cundinamarca,Región Andina,21135,2076857852245.55,140.75,19.68,72.98,18.21,46.96,Media
 Antioquia,Consolidado Antioquia,Región Andina,47011,9818029806995.07,111.09,15.49,84.06,11.87,45.98,Media
 Santander,Consolidado Santander,Región Andina,23098,1963431323033.37,75.55,13.24,82.11,12.84,44.43,Media
 Norte de Santander,Consolidado Norte de Santander,Región Andina,12337,1171708740715.62,144.88,15.76,75.45,12.19,44.1,Media
