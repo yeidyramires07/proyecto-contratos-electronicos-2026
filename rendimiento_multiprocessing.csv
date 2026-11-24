@@ -1,4 +1,4 @@
-procesos,tiempo_segundos,speedup,eficiencia
+﻿procesos,tiempo_segundos,speedup,eficiencia
 1,4.46,1.0,1.0
 2,5.0,0.89,0.45
 4,5.55,0.8,0.2
