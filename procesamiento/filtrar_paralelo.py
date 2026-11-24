@@ -1,92 +1,169 @@
 # filtrar_paralelo.py
-# Computacion Paralela: aqui se usa multiprocessing.
-#
-# Idea: son 100.000 contratos. Revisar uno por uno tarda. Entonces:
-#   1. Se hace la revision "en serie" (un solo proceso) y se mide el tiempo.
-#   2. Se parte la lista en pedazos y cada proceso revisa un pedazo al mismo tiempo.
-#   3. Se comparan los tiempos (speedup y eficiencia).
-#   4. Con el resultado se guarda contratos_medicamentos.csv, que usa el resto del proyecto.
-#
+# Computacion Paralela: aqui se usa multiprocessing sobre todo el dataset.
 # Se ejecuta desde la carpeta principal:  python procesamiento\filtrar_paralelo.py
 
+from pathlib import Path
 import time
-import pandas as pd
 from multiprocessing import Pool
-from reglas import es_de_medicamentos, categoria_del_contrato
+import pandas as pd
+from reglas import categoria_del_contrato, es_de_medicamentos
+
+RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
+ARCHIVO_ENTRADA = RAIZ_PROYECTO / "secop2_2020_2025.csv"
+SALIDA_RENDIMIENTO = RAIZ_PROYECTO / "rendimiento_multiprocessing.csv"
+SALIDA_CONTRATOS = RAIZ_PROYECTO / "contratos_medicamentos.csv"
+
+# Si quieres conservar TODOS los contratos de la Region Andina sin filtrar solo medicamentos,
+# deja SOLO_MEDICAMENTOS = False. Pon True solo si quieres filtrar por reglas de medicamentos.
+SOLO_MEDICAMENTOS = False
+
+# Si quieres conservar todos los valores positivos sin tope superior, deja TOPE_VALOR_MAX = None.
+TOPE_VALOR_MAX = None
+
+DEPARTAMENTOS_ANDINA = {
+    "antioquia",
+    "boyaca",
+    "boyacá",
+    "caldas",
+    "caqueta",
+    "caquetá",
+    "cauca",
+    "cesar",
+    "huila",
+    "norte de santander",
+    "quindio",
+    "quindío",
+    "risaralda",
+    "santander",
+    "tolima",
+    "bogota",
+    "bogotá",
+    "bogota d.c.",
+    "bogotá d.c.",
+    "distrito capital de bogota",
+    "distrito capital de bogotá",
+}
 
 
-def revisar_pedazo(textos):
-    # Recibe una lista de textos y devuelve una lista de True/False.
-    resultados = []
+def normalizar_depto(valor):
+    texto = str(valor or "").strip()
+    clave = texto.lower()
+    if clave in {
+        "bogota",
+        "bogotá",
+        "bogota d.c.",
+        "bogotá d.c.",
+        "distrito capital de bogota",
+        "distrito capital de bogotá",
+    }:
+        return "Distrito Capital de Bogotá"
+    return texto if texto else "Sin departamento"
+
+
+def evaluar_lote(textos):
+    es_med = []
+    cats = []
     for texto in textos:
-        resultados.append(es_de_medicamentos(texto))
-    return resultados
+        es_med.append(es_de_medicamentos(texto))
+        cats.append(categoria_del_contrato(texto))
+    return es_med, cats
 
 
 def partir_en_pedazos(lista, cantidad):
-    # Parte una lista en 'cantidad' pedazos casi iguales.
-    tamano = len(lista) // cantidad + 1
-    pedazos = []
-    for inicio in range(0, len(lista), tamano):
-        pedazos.append(lista[inicio:inicio + tamano])
-    return pedazos
+    if not lista:
+        return []
+    tamano = (len(lista) + cantidad - 1) // cantidad
+    return [lista[i:i + tamano] for i in range(0, len(lista), tamano)]
 
 
-# Este "if" es obligatorio en Windows cuando se usa multiprocessing.
 if __name__ == "__main__":
-    datos = pd.read_csv("datos_limpios.csv", encoding="utf-8-sig", low_memory=False)
-    textos = datos["objeto_del_contrato"].fillna("").tolist()
-    print("Contratos a revisar:", len(textos))
+    t0 = time.time()
+    datos = pd.read_csv(ARCHIVO_ENTRADA, encoding="utf-8-sig", low_memory=False)
+    total_csv = len(datos)
+    print(f"CSV cargado en {time.time() - t0:.2f} s | Total de filas leidas del CSV: {total_csv:,}")
 
-    # 1) En serie: un solo proceso revisa todo.
+    # Analizamos TODOS los contratos leidos del CSV sin recortar antes de medir
+    textos = datos["objeto_del_contrato"].fillna("").astype(str).tolist()
+    print(f"Total de contratos enviados a medicion (serie y paralelo): {len(textos):,}")
+
+    # 1) En serie (1 proceso) sobre el 100% del dataset leido
     inicio = time.time()
-    marcas_serie = revisar_pedazo(textos)
+    marcas_serie, cats_serie = evaluar_lote(textos)
     tiempo_serie = time.time() - inicio
-    print("En serie: %.2f segundos" % tiempo_serie)
+    print(f"En serie (1 proceso) - {len(textos):,} contratos analizados: {tiempo_serie:.2f} segundos")
 
-    # Aqui vamos anotando las mediciones para guardarlas al final.
-    mediciones = [{"procesos": 1, "tiempo_segundos": round(tiempo_serie, 2), "speedup": 1.0, "eficiencia": 1.0}]
+    mediciones = [{
+        "procesos": 1,
+        "contratos_analizados": len(textos),
+        "tiempo_segundos": round(tiempo_serie, 2),
+        "speedup": 1.0,
+        "eficiencia": 1.0,
+    }]
 
-    # 2) En paralelo: probamos con 2 y con 4 procesos.
-    marcas_paralelo = []
+    # 2) En paralelo (2 y 4 procesos) sobre el 100% del dataset leido
+    marcas_paralelo = marcas_serie
+    cats_paralelo = cats_serie
+
     for procesos in [2, 4]:
         pedazos = partir_en_pedazos(textos, procesos)
-
+        total_pedazos = sum(len(p) for p in pedazos)
         inicio = time.time()
-        with Pool(procesos) as grupo:
-            respuestas = grupo.map(revisar_pedazo, pedazos)
+        with Pool(processes=procesos) as grupo:
+            respuestas = grupo.map(evaluar_lote, pedazos)
         tiempo = time.time() - inicio
 
-        # Juntamos las respuestas de todos los procesos en una sola lista.
-        marcas_paralelo = []
-        for respuesta in respuestas:
-            marcas_paralelo.extend(respuesta)
+        marcas_p = []
+        cats_p = []
+        for m_part, c_part in respuestas:
+            marcas_p.extend(m_part)
+            cats_p.extend(c_part)
 
-        speedup = tiempo_serie / tiempo
+        marcas_paralelo = marcas_p
+        cats_paralelo = cats_p
+
+        speedup = tiempo_serie / tiempo if tiempo > 0 else 1.0
         eficiencia = speedup / procesos
-        print("Con %d procesos: %.2f segundos | speedup %.2f | eficiencia %.2f" % (procesos, tiempo, speedup, eficiencia))
-        mediciones.append({"procesos": procesos, "tiempo_segundos": round(tiempo, 2), "speedup": round(speedup, 2), "eficiencia": round(eficiencia, 2)})
+        print(
+            f"Con {procesos} procesos - {total_pedazos:,} contratos analizados: "
+            f"{tiempo:.2f} segundos | speedup {speedup:.2f} | eficiencia {eficiencia:.2f}"
+        )
+        mediciones.append({
+            "procesos": procesos,
+            "contratos_analizados": total_pedazos,
+            "tiempo_segundos": round(tiempo, 2),
+            "speedup": round(speedup, 2),
+            "eficiencia": round(eficiencia, 2),
+        })
 
-    # 3) Comprobamos que serie y paralelo dan exactamente lo mismo.
-    print("Resultados iguales:", marcas_serie == marcas_paralelo)
+    print("Resultados iguales entre serie y paralelo:", marcas_serie == marcas_paralelo)
+    pd.DataFrame(mediciones).to_csv(SALIDA_RENDIMIENTO, index=False)
 
-    # Guardamos las mediciones: la app las muestra en la pestana Rendimiento.
-    pd.DataFrame(mediciones).to_csv("rendimiento_multiprocessing.csv", index=False)
+    # 3) Asignamos resultados a TODOS los contratos leidos y aplicamos filtros seleccionados
+    df = datos.copy()
+    df["es_medicamento_regla"] = marcas_paralelo
+    df["categoria"] = cats_paralelo
 
-    # 4) Guardamos solo los contratos de medicamentos.
-    datos["es_medicamento"] = marcas_paralelo
-    medicamentos = datos[datos["es_medicamento"] == True].copy()
-    medicamentos = medicamentos.drop(columns=["es_medicamento"])
+    if "departamento" in df.columns:
+        dept_limpio = df["departamento"].fillna("").astype(str).str.strip().str.lower()
+        df = df[dept_limpio.isin(DEPARTAMENTOS_ANDINA)].copy()
+        df["departamento"] = df["departamento"].map(normalizar_depto)
 
-    # Quitamos valores absurdos (cero o mas de 100 mil millones).
-    medicamentos = medicamentos[medicamentos["valor_del_contrato"] > 0]
-    medicamentos = medicamentos[medicamentos["valor_del_contrato"] < 100000000000]
+    if SOLO_MEDICAMENTOS:
+        df = df[df["es_medicamento_regla"] == True].copy()
 
-    # Le ponemos a cada contrato su categoria.
-    categorias = []
-    for texto in medicamentos["objeto_del_contrato"]:
-        categorias.append(categoria_del_contrato(texto))
-    medicamentos["categoria"] = categorias
+    if "valor_del_contrato" in df.columns:
+        valores = pd.to_numeric(df["valor_del_contrato"], errors="coerce")
+        if TOPE_VALOR_MAX is not None:
+            df = df[(valores > 0) & (valores < TOPE_VALOR_MAX)].copy()
+        else:
+            df = df[valores > 0].copy()
 
-    medicamentos.to_csv("contratos_medicamentos.csv", index=False, encoding="utf-8-sig")
-    print("Contratos de medicamentos guardados:", len(medicamentos))
+    df.to_csv(SALIDA_CONTRATOS, index=False, encoding="utf-8-sig")
+
+    print(
+        f"Resumen final -> Leidos del CSV: {total_csv:,} | "
+        f"Analizados en paralelo: {len(textos):,} | Guardados: {len(df):,}"
+    )
+    if "departamento" in df.columns and len(df) > 0:
+        print("\nConteo por departamento en el archivo guardado:")
+        print(df["departamento"].value_counts().to_string())

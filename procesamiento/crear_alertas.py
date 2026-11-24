@@ -33,8 +33,11 @@ for fecha in fechas_fin:
         estados.append("Vigente")
 datos["estado_contrato"] = estados
 
-# Quitamos el dato personal.
-datos = datos.drop(columns=["n_mero_de_documento_ordenador_del_gasto"])
+# Quitamos el dato personal si existe en el DataFrame.
+columnas_sensibles = ["n_mero_de_documento_ordenador_del_gasto"]
+existentes = [col for col in columnas_sensibles if col in datos.columns]
+if existentes:
+    datos = datos.drop(columns=existentes)
 
 datos.to_csv("contratos_publicar.csv", index=False, encoding="utf-8-sig")
 print("Contratos guardados:", len(datos))
