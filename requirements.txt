@@ -1,3 +1,11 @@
+<<<<<<< HEAD
+﻿streamlit
+pandas
+plotly
+pymysql
+requests
+pyarrow
+=======
 ﻿streamlit
 pandas
 plotly
@@ -7,3 +15,4 @@ scikit-learn
 openpyxl
 xlrd
 gdown
+>>>>>>> 416f1509c4c66f34b7ff4d51677d940068758ad6
