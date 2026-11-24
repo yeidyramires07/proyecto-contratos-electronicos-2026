@@ -373,6 +373,16 @@ def preparar_datos(df):
     out["pagos_sin_soporte_pct"] = pd.to_numeric(
         out.get("pagos_sin_soporte_pct", out.get("pct_contratacion_directa", 0.0)), errors="coerce"
     ).fillna(0.0)
+    if "pct_contratacion_directa" not in out.columns:
+        out["pct_contratacion_directa"] = out["pagos_sin_soporte_pct"]
+    else:
+        out["pct_contratacion_directa"] = pd.to_numeric(out["pct_contratacion_directa"], errors="coerce").fillna(out["pagos_sin_soporte_pct"])
+    if "pct_modificados" in out.columns:
+        out["pct_modificados"] = pd.to_numeric(out["pct_modificados"], errors="coerce").fillna(0.0)
+    if "contratos" in out.columns:
+        out["contratos"] = pd.to_numeric(out["contratos"], errors="coerce").fillna(0.0)
+    if "valor_total_cop" in out.columns:
+        out["valor_total_cop"] = pd.to_numeric(out["valor_total_cop"], errors="coerce").fillna(0.0)
     if "riesgo_score" not in out.columns:
         out["riesgo_score"] = (
             (out["hhi_valor"] / 1000.0).clip(0, 1) * 50.0
@@ -382,6 +392,20 @@ def preparar_datos(df):
     out["nivel_alerta"] = out.get("nivel_alerta", "Sin alerta")
     out["nivel_alerta"] = out["nivel_alerta"].fillna("Sin alerta").astype(str).str.strip()
     return out
+
+
+def formato_cop(valor):
+    try:
+        v = float(valor)
+        if abs(v) >= 1e12:
+            return f"${v / 1e12:,.2f} B"
+        if abs(v) >= 1e9:
+            return f"${v / 1e9:,.2f} MM"
+        if abs(v) >= 1e6:
+            return f"${v / 1e6:,.1f} M"
+        return f"${v:,.0f}"
+    except Exception:
+        return "$0"
 
 
 def construir_mapa_andina(df_depto):
@@ -663,6 +687,32 @@ with tab_noticias_rt:
 # ----- 2. Resumen y Mapa -----
 
 with tab_resumen_mapa:
+    st.subheader("KPIs Estratégicos · Región Andina")
+    df_kpi = filtrado if len(filtrado) > 0 else contratos
+
+    if len(df_kpi) > 0:
+        k1, k2, k3, k4, k5 = st.columns(5)
+        if "contratos" in df_kpi.columns:
+            total_contratos_txt = f"{int(df_kpi['contratos'].sum()):,}"
+        else:
+            total_contratos_txt = f"{len(df_kpi):,}"
+
+        if "valor_total_cop" in df_kpi.columns:
+            total_valor_txt = formato_cop(df_kpi["valor_total_cop"].sum())
+        else:
+            total_valor_txt = f"{len(df_kpi):,} reg."
+
+        hhi_med = float(df_kpi["hhi_valor"].mean())
+        cr4_med = float(df_kpi["cr4_valor"].mean())
+        riesgo_med = float(df_kpi["riesgo_score"].mean())
+
+        k1.metric("Contratos", total_contratos_txt)
+        k2.metric("Valor total", total_valor_txt)
+        k3.metric("HHI promedio", f"{hhi_med:,.1f}")
+        k4.metric("CR4 promedio", f"{cr4_med:,.1f}%")
+        k5.metric("Riesgo promedio", f"{riesgo_med:,.2f}")
+
+    st.divider()
     st.subheader("Mapa de contratación directa · Región Andina")
     st.caption("Pasa el cursor sobre cada departamento para ver su porcentaje de contratación directa y su HHI promedio; el tamaño del marcador responde al HHI.")
 
