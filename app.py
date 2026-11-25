@@ -42,15 +42,30 @@ COORDENADAS = {
 
 ROLES_INSTITUCIONALES = ["Fiscalia", "Policia", "Juez", "Gobierno"]
 
+PALETA_ALERTAS = {
+    "Alta": "#E11D48",
+    "Alto": "#E11D48",
+    "Media": "#D97706",
+    "Medio": "#D97706",
+    "Baja": "#0284C7",
+    "Bajo": "#0284C7",
+    "Sin alerta": "#94A3B8",
+}
+
+ESCALA_AZUL_CLARA = [
+    [0.0, "#DBEAFE"],
+    [0.5, "#60A5FA"],
+    [1.0, "#1D4ED8"],
+]
+
 st.markdown(
     """
     <style>
         .stApp { background-color: #FFFFFF; color: #111827; }
         [data-testid="stSidebar"] { background-color: #F8FAFC; border-right: 1px solid #E2E8F0; }
 
-        /* Evita que la barra superior de Streamlit tape la fecha y el encabezado */
         .block-container {
-            padding-top: 3.2rem !important;
+            padding-top: 2.7rem !important;
         }
 
         .cabecera-portal {
@@ -58,92 +73,89 @@ st.markdown(
             justify-content: space-between;
             align-items: center;
             border-bottom: 1.5px solid #E2E8F0;
-            padding: 8px 4px 12px 4px;
-            margin-bottom: 14px;
+            padding: 6px 4px 10px 4px;
+            margin-bottom: 10px;
         }
-        .cabecera-izq {
-            min-width: 185px;
-            font-size: 0.82rem;
+        .fecha-sub {
+            font-size: 0.78rem;
             color: #475569;
-            line-height: 1.35;
-        }
-        .cabecera-centro {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            text-align: center;
-        }
-        .cabecera-titulo {
-            font-family: Georgia, "Times New Roman", serif;
-            font-size: 1.48rem;
-            font-weight: 500;
-            color: #0F294A;
-            letter-spacing: 0.01em;
-            line-height: 1.15;
-        }
-        .cabecera-der {
-            min-width: 185px;
-            display: flex;
-            justify-content: flex-end;
+            margin-top: 2px;
         }
         .badge-estado {
             background-color: #F8FAFC;
             color: #0F294A;
             border: 1px solid #CBD5E1;
             font-weight: 600;
-            font-size: 0.73rem;
-            padding: 5px 11px;
+            font-size: 0.7rem;
+            padding: 4px 10px;
             border-radius: 999px;
         }
-        .barra-resumen {
+        .hero-topologia {
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+            padding: 6px;
             background-color: #F8FAFC;
-            border-left: 3px solid #1D4ED8;
-            color: #1E293B;
-            padding: 9px 14px;
-            border-radius: 4px;
-            margin: 10px 0 16px 0;
-            font-size: 0.87rem;
-        }
-        .nota-fila {
-            border: 1px solid #E5E7EB;
-            border-left: 4px solid #1D4ED8;
-            border-radius: 6px;
-            padding: 13px 15px;
-            margin-bottom: 12px;
-            background-color: #FFFFFF;
-        }
-        .nota-fila.alta {
-            border-left-color: #B91C1C;
-            background-color: #FFFBFB;
-        }
-        .tarjeta-titulo {
-            font-size: 0.97rem;
-            font-weight: 700;
-            color: #111827;
-            line-height: 1.32;
-            margin: 8px 0 6px 0;
-        }
-        .tarjeta-resumen {
-            font-size: 0.85rem;
-            color: #4B5563;
-            line-height: 1.42;
             margin-bottom: 8px;
         }
-        .tag-ods {
-            display: inline-block;
-            background-color: #EFF6FF;
-            color: #1E3A8A;
+        .seccion-mini-titulo {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #0F294A;
+            margin: 8px 0 4px 0;
+        }
+        .tira-noticias {
+            display: flex;
+            flex-direction: row;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 2px 0 6px 0;
+            margin-bottom: 6px;
+        }
+        .nota-mini {
+            flex: 1 1 0;
+            min-width: 165px;
+            max-width: 230px;
+            border: 1px solid #E2E8F0;
+            border-radius: 6px;
+            padding: 5px 7px;
+            background-color: #FFFFFF;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .nota-mini img {
+            width: 100%;
+            height: 44px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-bottom: 3px;
+        }
+        .nota-mini-meta {
+            font-size: 0.62rem;
+            color: #64748B;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .nota-mini-titulo {
             font-size: 0.72rem;
             font-weight: 600;
-            padding: 2px 7px;
-            border-radius: 4px;
-            margin-right: 6px;
+            color: #111827;
+            line-height: 1.18;
+            margin: 2px 0 4px 0;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
-        .credito-foto {
-            font-size: 0.73rem;
-            color: #6B7280;
-            margin-top: 4px;
+        .nota-mini-link {
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #1D4ED8;
+            text-decoration: none;
+        }
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            border-radius: 6px;
         }
     </style>
     """,
@@ -152,13 +164,12 @@ st.markdown(
 
 
 def logo_minimalista(size=34):
-    """Logo minimalista de trazo limpio: cumbres andinas y punto de seguimiento."""
     return (
         f'<svg width="{size}" height="{size}" viewBox="0 0 36 36" fill="none" '
         f'xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;">'
         '<path d="M5 26L14.5 12L21 22L25.5 15.5L31 26" stroke="#0F294A" '
         'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
-        '<circle cx="25.5" cy="10" r="2.6" fill="#1D4ED8"/>'
+        '<circle cx="25.5" cy="10" r="2.6" fill="#2563EB"/>'
         "</svg>"
     )
 
@@ -224,7 +235,6 @@ def iniciar_sesion(usuario, clave):
 
 @st.cache_data(ttl=1800)
 def buscar_fotos_fotografos(termino_foto, max_fotos=6):
-    """Busca fotografías reales y el nombre del autor en Unsplash o Wikimedia Commons."""
     access_key = leer_secreto("UNSPLASH_ACCESS_KEY")
     if access_key:
         try:
@@ -235,12 +245,11 @@ def buscar_fotos_fotografos(termino_foto, max_fotos=6):
                 timeout=8,
             )
             resp.raise_for_status()
-            fotos = []
-            for item in resp.json().get("results", []):
-                url_foto = (item.get("urls") or {}).get("regular")
-                fotografo = ((item.get("user") or {}).get("name") or "").strip()
-                if url_foto:
-                    fotos.append({"url": url_foto, "fotografo": fotografo or "Unsplash"})
+            fotos = [
+                (item.get("urls") or {}).get("regular")
+                for item in resp.json().get("results", [])
+                if (item.get("urls") or {}).get("regular")
+            ]
             if fotos:
                 return fotos
         except Exception:
@@ -256,8 +265,8 @@ def buscar_fotos_fotografos(termino_foto, max_fotos=6):
                 "gsrsearch": f"{termino_foto} filetype:bitmap",
                 "gsrlimit": max_fotos * 2,
                 "prop": "imageinfo",
-                "iiprop": "url|extmetadata",
-                "iiurlwidth": 800,
+                "iiprop": "url",
+                "iiurlwidth": 360,
                 "format": "json",
             },
             headers={"User-Agent": "ContratacionAndinaApp/1.0"},
@@ -270,16 +279,9 @@ def buscar_fotos_fotografos(termino_foto, max_fotos=6):
             infos = p.get("imageinfo") or []
             if not infos:
                 continue
-            info = infos[0]
-            url_foto = info.get("thumburl") or info.get("url")
-            meta = info.get("extmetadata") or {}
-            autor_html = ((meta.get("Artist") or {}).get("value") or "").strip()
-            while "<" in autor_html and ">" in autor_html:
-                i, j = autor_html.find("<"), autor_html.find(">", autor_html.find("<"))
-                autor_html = autor_html[:i] + " " + autor_html[j + 1 :] if j != -1 else autor_html
-            autor = " ".join(autor_html.split()).strip() or "Wikimedia Commons"
+            url_foto = infos[0].get("thumburl") or infos[0].get("url")
             if url_foto and not url_foto.lower().endswith(".svg"):
-                fotos.append({"url": url_foto, "fotografo": autor[:60]})
+                fotos.append(url_foto)
             if len(fotos) >= max_fotos:
                 break
         return fotos
@@ -288,7 +290,7 @@ def buscar_fotos_fotografos(termino_foto, max_fotos=6):
 
 
 @st.cache_data(ttl=900)
-def obtener_noticias_ods(consulta, termino_foto, max_notas=6):
+def obtener_noticias_rss(consulta, termino_foto, max_notas=6):
     url = (
         "https://news.google.com/rss/search?q="
         + urllib.parse.quote(consulta)
@@ -305,34 +307,40 @@ def obtener_noticias_ods(consulta, termino_foto, max_notas=6):
             titulo = (item.findtext("title") or "").strip()
             enlace = (item.findtext("link") or "").strip()
             fuente_n = (item.findtext("source") or "Prensa").strip()
-            fecha_pub = (item.findtext("pubDate") or "").strip()[:16]
-            desc = item.findtext("description") or ""
-            while "<" in desc and ">" in desc:
-                i, j = desc.find("<"), desc.find(">", desc.find("<"))
-                desc = desc[:i] + " " + desc[j + 1 :] if j != -1 else desc
-            intro = " ".join(desc.replace("&nbsp;", " ").replace("&amp;", "&").split()).strip()
-            if not intro or intro.lower() == titulo.lower():
-                intro = f"Nota de {fuente_n} sobre compras públicas y gestión en la región."
-
-            imagen = None
-            fotografo = None
-            if fotos_reales:
-                foto_elegida = fotos_reales[idx % len(fotos_reales)]
-                imagen = foto_elegida["url"]
-                fotografo = f"Foto: {foto_elegida['fotografo']}"
-
+            fecha_pub = (item.findtext("pubDate") or "").strip()[:11]
+            imagen = fotos_reales[idx % len(fotos_reales)] if fotos_reales else None
             notas.append({
                 "titulo": titulo,
-                "intro": intro[:180],
                 "url": enlace,
                 "fuente": fuente_n,
                 "fecha": fecha_pub,
                 "imagen": imagen,
-                "fotografo": fotografo,
             })
     except Exception:
         pass
     return notas
+
+
+def render_tira_noticias(notas):
+    if not notas:
+        return
+    bloques = ['<div class="tira-noticias">']
+    for nota in notas:
+        img_tag = f'<img src="{nota["imagen"]}" alt="">' if nota["imagen"] else ""
+        meta = f"{nota['fuente']} · {nota['fecha']}" if nota["fecha"] else nota["fuente"]
+        enlace_tag = (
+            f'<a class="nota-mini-link" href="{nota["url"]}" target="_blank">Leer →</a>'
+            if nota["url"] else ""
+        )
+        tarjeta = (
+            f'<div class="nota-mini">'
+            f'<div>{img_tag}<div class="nota-mini-meta">{meta}</div>'
+            f'<div class="nota-mini-titulo">{nota["titulo"]}</div></div>'
+            f'<div>{enlace_tag}</div></div>'
+        )
+        bloques.append(tarjeta)
+    bloques.append("</div>")
+    st.markdown("".join(bloques), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=600)
@@ -344,7 +352,7 @@ def leer_csv(archivo):
 
 def cargar_datos(archivo_subido=None):
     if archivo_subido is not None:
-        return leer_csv(archivo_subido), f"archivo cargado: {archivo_subido.name}"
+        return leer_csv(archivo_subido), archivo_subido.name
     for archivo in ["metricas_andina.csv", "entidades_auditoria_kpis.csv", "secop2_4sectores_limpio.csv"]:
         if os.path.exists(archivo):
             return leer_csv(archivo), archivo
@@ -357,7 +365,7 @@ def cargar_datos(archivo_subido=None):
         "pagos_sin_soporte_pct": [73.8, 89.0, 70.5],
         "riesgo_score": [75.3, 60.9, 55.7],
         "nivel_alerta": ["Alta", "Alta", "Alta"],
-    }), "datos de respaldo"
+    }), "respaldo"
 
 
 def preparar_datos(df):
@@ -426,8 +434,8 @@ def construir_mapa_andina(df_depto):
         max_hhi = max(float(sub["hhi_promedio"].max()), 1.0)
         textos = [
             f"<b>{r['departamento']}</b><br>"
-            f"Contratación directa: {round(r['soporte_pct'], 1)}%<br>"
-            f"HHI promedio: {round(r['hhi_promedio'], 1)}"
+            f"Directa: {round(r['soporte_pct'], 1)}%<br>"
+            f"HHI: {round(r['hhi_promedio'], 1)}"
             for _, r in sub.iterrows()
         ]
         fig.add_trace(go.Scattermap(
@@ -439,7 +447,7 @@ def construir_mapa_andina(df_depto):
             marker=dict(
                 size=13 + 22 * (sub["hhi_promedio"] / max_hhi),
                 color=sub["soporte_pct"],
-                colorscale="Blues",
+                colorscale=ESCALA_AZUL_CLARA,
                 showscale=True,
                 colorbar=dict(title="% Directa"),
             ),
@@ -476,12 +484,12 @@ def armar_mensaje(fila, rol_destino="Gobierno", nombre_destino="funcionario"):
     )
 
     if rol_destino == "Fiscalia":
-        return f"Hola {nombre_destino} (Fiscalia). Posible irregularidad contractual en {base} Revisar soportes y procesos."
+        return f"Hola {nombre_destino} (Fiscalia). {base}"
     if rol_destino == "Policia":
-        return f"Hola {nombre_destino} (Policia). Alerta preventiva en {base} Apoyo en verificacion territorial."
+        return f"Hola {nombre_destino} (Policia). {base}"
     if rol_destino == "Juez":
-        return f"Hola {nombre_destino} (Juez). Reporte de legalidad y concentracion en {base} Para control y seguimiento."
-    return f"Hola {nombre_destino} (Gobierno). Alerta de gestion publica en {base} Revisar administracion y correctivos."
+        return f"Hola {nombre_destino} (Juez). {base}"
+    return f"Hola {nombre_destino} (Gobierno). {base}"
 
 
 def leer_suscriptores():
@@ -495,6 +503,30 @@ def telegram_ok(respuesta):
     if isinstance(respuesta, dict):
         return bool(respuesta.get("ok"))
     return bool(respuesta)
+
+
+def localizar_imagen_red():
+    carpeta_app = os.path.dirname(os.path.abspath(__file__))
+    candidatos = [
+        os.path.join(carpeta_app, "topologia_red.png"),
+        os.path.join(carpeta_app, "topologia_red.png.png"),
+        os.path.join(carpeta_app, "topologia_red.jpg"),
+        os.path.join(carpeta_app, "topologia_red.jpeg"),
+    ]
+    for ruta in candidatos:
+        if os.path.isfile(ruta):
+            return ruta
+
+    try:
+        for nombre in os.listdir(carpeta_app):
+            base, ext = os.path.splitext(nombre)
+            if base.lower().startswith("topologia_red") and ext.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
+                ruta_completa = os.path.join(carpeta_app, nombre)
+                if os.path.isfile(ruta_completa):
+                    return ruta_completa
+    except Exception:
+        pass
+    return None
 
 
 # ----- Acceso a la plataforma -----
@@ -522,9 +554,9 @@ if "sesion" not in st.session_state:
                 st.session_state["sesion"] = datos_usuario
                 st.rerun()
             elif resultado == "sin_base":
-                st.warning("Por ahora no pudimos conectar con la base de datos. Puedes entrar como invitado.")
+                st.warning("Sin conexión a base de datos.")
             else:
-                st.error("Revisa el usuario y la contraseña; no coinciden.")
+                st.error("Usuario o contraseña incorrectos.")
 
         if st.button("Entrar como invitado"):
             st.session_state["sesion"] = {"nombre": "Invitado", "rol": "Invitado", "departamento": None}
@@ -532,27 +564,31 @@ if "sesion" not in st.session_state:
     st.stop()
 
 
-# ----- Encabezado superior -----
+if "vista_activa" not in st.session_state:
+    st.session_state["vista_activa"] = "inicio"
+
+NOMBRES_PESTANAS = [
+    "SECOP · Alertas",
+    "Mapa Andino",
+    "Dashboard interactivo",
+    "Riesgo y Cómputo",
+    "Servicios Judiciales",
+]
+
+
+# ----- Encabezado: título + logo arriba de la fecha, clicables para volver al inicio -----
 
 fecha_texto = datetime.now().strftime("%d/%m/%Y")
-st.markdown(
-    f"""
-    <div class="cabecera-portal">
-        <div class="cabecera-izq">
-            <strong>{fecha_texto}</strong><br>
-            <span>Región Andina · Colombia</span>
-        </div>
-        <div class="cabecera-centro">
-            {logo_minimalista(34)}
-            <span class="cabecera-titulo">Contratación Andina</span>
-        </div>
-        <div class="cabecera-der">
-            <span class="badge-estado">SECOP II · Consulta</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+c_izq, c_der = st.columns([4, 1])
+with c_izq:
+    if st.button("▲ Contratación Andina", key="btn_titulo_inicio"):
+        st.session_state["vista_activa"] = "inicio"
+        st.rerun()
+    st.markdown(f'<div class="fecha-sub"><strong>{fecha_texto}</strong> · Región Andina</div>', unsafe_allow_html=True)
+with c_der:
+    st.markdown('<div style="display:flex;justify-content:flex-end;padding-top:4px;"><span class="badge-estado">SECOP II</span></div>', unsafe_allow_html=True)
+
+st.markdown('<div style="border-bottom:1.5px solid #E2E8F0;margin-bottom:8px;"></div>', unsafe_allow_html=True)
 
 sesion = st.session_state["sesion"]
 rol = sesion["rol"]
@@ -564,15 +600,15 @@ contratos = preparar_datos(datos_crudos)
 if sesion.get("departamento") and rol in ROLES_INSTITUCIONALES + ["Comprador", "EPS", "Farmacia o distribuidor", "Auditor"]:
     contratos = contratos[contratos["departamento"] == sesion["departamento"]]
 
-st.sidebar.write(f"Sesión activa: **{sesion['nombre']}** ({rol})")
+st.sidebar.write(f"**{sesion['nombre']}** · {rol}")
 if st.sidebar.button("Cerrar sesión"):
     st.session_state.clear()
     st.rerun()
 
 st.sidebar.header("Filtros")
 departamentos = st.sidebar.multiselect("Departamento", sorted(contratos["departamento"].unique()))
-sectores = st.sidebar.multiselect("Sector / Categoría", sorted(contratos["sector"].unique()))
-niveles = st.sidebar.multiselect("Nivel de alerta", sorted(contratos["nivel_alerta"].unique()))
+sectores = st.sidebar.multiselect("Sector", sorted(contratos["sector"].unique()))
+niveles = st.sidebar.multiselect("Alerta", sorted(contratos["nivel_alerta"].unique()))
 
 filtrado = contratos.copy()
 if departamentos:
@@ -582,140 +618,85 @@ if sectores:
 if niveles:
     filtrado = filtrado[filtrado["nivel_alerta"].isin(niveles)]
 
-st.sidebar.caption(f"Origen: {fuente}")
-st.sidebar.caption(f"Registros visibles: {len(filtrado)} de {len(contratos)}")
+st.sidebar.caption(f"{fuente} · {len(filtrado)}/{len(contratos)}")
 
-if len(filtrado) > 0:
-    top3 = filtrado.sort_values("riesgo_score", ascending=False).head(3)
-    focos_texto = "  ·  ".join(
-        f"{r['departamento']}: puntaje {round(float(r['riesgo_score']), 1)} (HHI {round(float(r['hhi_valor']), 1)})"
-        for _, r in top3.iterrows()
+
+# ----- Imagen de topología de red (clic para volver al inicio) -----
+
+ruta_imagen_red = localizar_imagen_red()
+if ruta_imagen_red:
+    st.markdown('<div class="hero-topologia">', unsafe_allow_html=True)
+    st.image(ruta_imagen_red, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    if st.button("Inicio · Topología", key="btn_topologia_inicio"):
+        st.session_state["vista_activa"] = "inicio"
+        st.rerun()
+
+
+# ----- Pestañas justo debajo de la imagen de topología -----
+
+pestana_elegida = st.radio(
+    "Secciones",
+    NOMBRES_PESTANAS,
+    index=None,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="selector_pestana_top",
+)
+
+if pestana_elegida is not None and pestana_elegida != st.session_state.get("ultimo_radio"):
+    st.session_state["ultimo_radio"] = pestana_elegida
+    st.session_state["vista_activa"] = pestana_elegida
+    st.rerun()
+
+vista = st.session_state["vista_activa"]
+
+
+# ----- Vista de inicio: noticias Región Andina y luego tiempo real -----
+
+if vista == "inicio":
+    st.markdown('<div class="seccion-mini-titulo">Noticias · Región Andina</div>', unsafe_allow_html=True)
+    notas_andina = obtener_noticias_rss(
+        "contratación pública Antioquia Boyacá Caldas Cundinamarca Huila Santander Tolima",
+        "colombia mountains city",
+        max_notas=6,
     )
-    st.markdown(f'<div class="barra-resumen"><b>Mayor puntaje en el filtro:</b> {focos_texto}</div>', unsafe_allow_html=True)
+    render_tira_noticias(notas_andina)
 
-(
-    tab_noticias_rt,
-    tab_resumen_mapa,
-    tab_dashboard,
-    tab_senales_rend,
-    tab_judiciales,
-    tab_red,
-    tab_secop,
-) = st.tabs([
-    "Noticias y Tiempo Real",
-    "Resumen y Mapa",
-    "Dashboard interactivo",
-    "Señales y Rendimiento",
-    "Servicios Judiciales",
-    "Red",
-    "SECOP · Alertas",
-])
+    st.markdown('<div class="seccion-mini-titulo">Noticias · Tiempo real</div>', unsafe_allow_html=True)
+    notas_rt = obtener_noticias_rss(
+        "SECOP contratación pública Colombia hoy",
+        "office government building",
+        max_notas=6,
+    )
+    render_tira_noticias(notas_rt)
 
 
-# ----- 1. Noticias y Tiempo Real -----
+# ----- Pestaña 1: SECOP · Alertas -----
 
-with tab_noticias_rt:
-    st.subheader("Noticias en tiempo real · ODS")
-    st.caption("Actualidad por eje temático para contextualizar lo que ocurre en contratación pública.")
-
-    config_ods = {
-        "ODS 3 · Salud": ("salud hospitales medicamentos contratación Colombia", "hospital colombia"),
-        "ODS 4 · Educación": ("educación colegios universidades contratación Colombia", "university bogota"),
-        "ODS 9 · Transporte e Infraestructura": ("infraestructura vías transporte Colombia", "highway colombia"),
-        "ODS 11 · Vivienda": ("vivienda obras ciudades Colombia", "bogota city"),
-        "ODS 16 · Contratación y Transparencia": ("SECOP contratación pública Colombia", "courthouse law"),
-    }
-
-    c_ods_sel, c_ods_btn = st.columns([4, 1])
-    with c_ods_sel:
-        ods_sel = st.selectbox("Tema ODS", list(config_ods.keys()))
-    with c_ods_btn:
-        st.write("")
-        st.write("")
-        if st.button("Actualizar noticias"):
-            obtener_noticias_ods.clear()
-            buscar_fotos_fotografos.clear()
-            st.rerun()
-
-    consulta_rss, consulta_foto = config_ods[ods_sel]
-    notas_ods = obtener_noticias_ods(consulta_rss, consulta_foto, max_notas=6)
-
-    if notas_ods:
-        for inicio in range(0, len(notas_ods), 3):
-            fila_cols = st.columns(3, gap="medium")
-            for pos, nota in enumerate(notas_ods[inicio : inicio + 3]):
-                with fila_cols[pos]:
-                    with st.container(border=True):
-                        if nota["imagen"]:
-                            st.image(nota["imagen"], use_container_width=True)
-                        if nota["fotografo"]:
-                            st.markdown(f'<div class="credito-foto">{nota["fotografo"]}</div>', unsafe_allow_html=True)
-                        meta_der = f"{nota['fuente']} · {nota['fecha']}" if nota["fecha"] else nota["fuente"]
-                        st.markdown(
-                            f'<div style="margin-top:6px;"><span class="tag-ods">{ods_sel}</span><small><b>{meta_der}</b></small></div>',
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown(f'<div class="tarjeta-titulo">{nota["titulo"]}</div>', unsafe_allow_html=True)
-                        st.markdown(f'<div class="tarjeta-resumen">{nota["intro"]}</div>', unsafe_allow_html=True)
-                        if nota["url"]:
-                            st.link_button("Leer nota", nota["url"])
+elif vista == "SECOP · Alertas":
+    if mostrar_dashboard_secop is not None:
+        mostrar_dashboard_secop()
     else:
-        st.info("No llegaron notas en este momento; vuelve a intentar en un rato.")
-
-    st.divider()
-    st.subheader("Panorama por departamento · Región Andina")
-    st.caption("Ordenado de mayor a menor puntaje según los filtros que tengas activos.")
-
-    if len(filtrado) == 0:
-        st.info("No hay departamentos que coincidan con el filtro seleccionado.")
-    else:
-        for _, fila in filtrado.sort_values("riesgo_score", ascending=False).iterrows():
-            alerta_txt = str(fila["nivel_alerta"])
-            es_alta = alerta_txt.upper() in ["ALTO", "ALTA"]
-            st.markdown(
-                f"""
-                <div class="nota-fila {'alta' if es_alta else ''}">
-                    <small><b>{fila['departamento']}</b> · Nivel: {alerta_txt}</small><br>
-                    <b>Puntaje: {round(float(fila['riesgo_score']), 1)}</b><br>
-                    HHI: {round(float(fila['hhi_valor']), 1)} · CR4: {round(float(fila['cr4_valor']), 1)}% · Contratación directa: {round(float(fila['pagos_sin_soporte_pct']), 1)}%
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        st.info("No se encontró `modulo_secop_original.py`.")
 
 
-# ----- 2. Resumen y Mapa -----
+# ----- Pestaña 2: Mapa Andino -----
 
-with tab_resumen_mapa:
-    st.subheader("KPIs Estratégicos · Región Andina")
+elif vista == "Mapa Andino":
     df_kpi = filtrado if len(filtrado) > 0 else contratos
 
     if len(df_kpi) > 0:
         k1, k2, k3, k4, k5 = st.columns(5)
-        if "contratos" in df_kpi.columns:
-            total_contratos_txt = f"{int(df_kpi['contratos'].sum()):,}"
-        else:
-            total_contratos_txt = f"{len(df_kpi):,}"
-
-        if "valor_total_cop" in df_kpi.columns:
-            total_valor_txt = formato_cop(df_kpi["valor_total_cop"].sum())
-        else:
-            total_valor_txt = f"{len(df_kpi):,} reg."
-
-        hhi_med = float(df_kpi["hhi_valor"].mean())
-        cr4_med = float(df_kpi["cr4_valor"].mean())
-        riesgo_med = float(df_kpi["riesgo_score"].mean())
-
+        total_contratos_txt = f"{int(df_kpi['contratos'].sum()):,}" if "contratos" in df_kpi.columns else f"{len(df_kpi):,}"
+        total_valor_txt = formato_cop(df_kpi["valor_total_cop"].sum()) if "valor_total_cop" in df_kpi.columns else f"{len(df_kpi):,}"
         k1.metric("Contratos", total_contratos_txt)
         k2.metric("Valor total", total_valor_txt)
-        k3.metric("HHI promedio", f"{hhi_med:,.1f}")
-        k4.metric("CR4 promedio", f"{cr4_med:,.1f}%")
-        k5.metric("Riesgo promedio", f"{riesgo_med:,.2f}")
+        k3.metric("HHI promedio", f"{df_kpi['hhi_valor'].mean():,.1f}")
+        k4.metric("CR4 promedio", f"{df_kpi['cr4_valor'].mean():,.1f}%")
+        k5.metric("Riesgo promedio", f"{df_kpi['riesgo_score'].mean():,.2f}")
 
     st.divider()
-    st.subheader("Mapa de contratación directa · Región Andina")
-    st.caption("Pasa el cursor sobre cada departamento para ver su porcentaje de contratación directa y su HHI promedio; el tamaño del marcador responde al HHI.")
-
     por_depto_mapa = filtrado.groupby("departamento", as_index=False).agg(
         hhi_promedio=("hhi_valor", "mean"),
         soporte_pct=("pagos_sin_soporte_pct", "mean"),
@@ -729,17 +710,14 @@ with tab_resumen_mapa:
             x="departamento",
             y="soporte_pct",
             color="soporte_pct",
-            color_continuous_scale="Blues",
-            labels={"soporte_pct": "% Contratación directa", "departamento": "Departamento"},
-            title="Contratación directa por departamento (%)",
+            color_continuous_scale=ESCALA_AZUL_CLARA,
+            labels={"soporte_pct": "% Directa", "departamento": "Departamento"},
+            title="Contratación directa (%)",
         )
         fig_colores.update_layout(height=320)
         st.plotly_chart(fig_colores, use_container_width=True)
 
     st.divider()
-    st.subheader("Resumen")
-    st.caption("Cifras consolidadas de acuerdo con los filtros aplicados a la izquierda.")
-
     c1, c2, c3 = st.columns(3)
     c1.metric("Registros", len(filtrado))
     c2.metric("HHI promedio", round(float(filtrado["hhi_valor"].mean()), 1) if len(filtrado) else 0.0)
@@ -755,7 +733,7 @@ with tab_resumen_mapa:
     por_sector["contratacion_directa_pct"] = por_sector["contratacion_directa_pct"].round(1)
     st.dataframe(por_sector, hide_index=True, use_container_width=True)
 
-    st.markdown("#### Concentración (HHI) por departamento")
+    st.markdown("#### HHI por departamento")
     por_depto = filtrado.groupby("departamento", as_index=False).agg(
         hhi_promedio=("hhi_valor", "mean"),
     ).sort_values("hhi_promedio", ascending=False)
@@ -764,24 +742,21 @@ with tab_resumen_mapa:
             por_depto,
             x="departamento",
             y="hhi_promedio",
-            color_discrete_sequence=["#0F294A"],
-            labels={"hhi_promedio": "HHI promedio", "departamento": "Departamento"},
+            color_discrete_sequence=["#2563EB"],
+            labels={"hhi_promedio": "HHI", "departamento": "Departamento"},
         ),
         use_container_width=True,
     )
 
 
-# ----- 3. Dashboard interactivo -----
+# ----- Pestaña 3: Dashboard interactivo -----
 
-with tab_dashboard:
-    st.subheader("Dashboard interactivo")
-    st.caption("Compara entidades según el indicador que elijas y explora cómo se cruzan concentración y contratación directa.")
-
+elif vista == "Dashboard interactivo":
     metrica_elegida = st.selectbox(
-        "Indicador a revisar",
+        "Indicador",
         ["riesgo_score", "hhi_valor", "cr4_valor", "pagos_sin_soporte_pct"],
     )
-    top_n = st.slider("Cantidad de entidades a mostrar", 5, 30, 10)
+    top_n = st.slider("Entidades", 5, 30, 10)
 
     top_dash = filtrado.sort_values(metrica_elegida, ascending=False).head(top_n)
     if len(top_dash) > 0:
@@ -791,8 +766,9 @@ with tab_dashboard:
                 x="entidad",
                 y=metrica_elegida,
                 color="nivel_alerta",
+                color_discrete_map=PALETA_ALERTAS,
                 hover_data=["departamento", "sector"],
-                title=f"Primeras {top_n} entidades en {metrica_elegida}",
+                title=f"Top {top_n} · {metrica_elegida}",
             ),
             use_container_width=True,
         )
@@ -803,34 +779,29 @@ with tab_dashboard:
                 y="pagos_sin_soporte_pct",
                 size="riesgo_score",
                 color="nivel_alerta",
+                color_discrete_map=PALETA_ALERTAS,
                 hover_name="entidad",
-                title="HHI frente a contratación directa por entidad",
+                title="HHI vs % Directa",
             ),
             use_container_width=True,
         )
-    else:
-        st.info("No hay entidades para graficar con los filtros actuales.")
 
 
-# ----- 4. Señales y Rendimiento -----
+# ----- Pestaña 4: Riesgo y Cómputo -----
 
-with tab_senales_rend:
-    st.subheader("Datos y rendimiento")
-    st.caption("Puedes cargar un CSV propio para probarlo o revisar el listado de señales y los tiempos de ejecución.")
-
-    subido = st.file_uploader("Subir archivo CSV", type=["csv"])
+elif vista == "Riesgo y Cómputo":
+    subido = st.file_uploader("CSV", type=["csv"])
     if subido is not None:
         st.session_state["archivo_csv_subido"] = subido
-    if st.session_state.get("archivo_csv_subido") is not None and st.button("Restaurar datos iniciales"):
+    if st.session_state.get("archivo_csv_subido") is not None and st.button("Restaurar"):
         st.session_state.pop("archivo_csv_subido", None)
         st.rerun()
 
-    st.markdown("#### Señales detectadas")
     cols = ["entidad", "departamento", "sector", "hhi_valor", "cr4_valor", "pagos_sin_soporte_pct", "riesgo_score", "nivel_alerta"]
     st.dataframe(filtrado[cols].sort_values("riesgo_score", ascending=False), hide_index=True, use_container_width=True)
 
-    st.markdown("#### Rendimiento con multiprocessing")
     if os.path.exists("rendimiento_multiprocessing.csv"):
+        st.markdown("#### Multiprocessing")
         medidas = pd.read_csv("rendimiento_multiprocessing.csv")
         st.dataframe(medidas, hide_index=True, use_container_width=True)
         st.plotly_chart(
@@ -838,21 +809,16 @@ with tab_senales_rend:
                 medidas,
                 x="procesos",
                 y="speedup",
-                color_discrete_sequence=["#1D4ED8"],
-                title="Speedup según cantidad de procesos",
+                color_discrete_sequence=["#3B82F6"],
+                title="Speedup",
             ),
             use_container_width=True,
         )
-    else:
-        st.info("Todavía no se ha generado `rendimiento_multiprocessing.csv`.")
 
 
-# ----- 5. Servicios Judiciales -----
+# ----- Pestaña 5: Servicios Judiciales -----
 
-with tab_judiciales:
-    st.subheader("Servicios Judiciales · Revisión por umbrales")
-    st.caption("Define los valores mínimos de HHI, CR4 y contratación directa para ubicar casos que convenga revisar.")
-
+elif vista == "Servicios Judiciales":
     c_u1, c_u2, c_u3, c_u4 = st.columns(4)
     umb_hhi = c_u1.number_input("Umbral HHI", min_value=0.0, max_value=10000.0, value=1000.0, step=50.0)
     umb_cr4 = c_u2.number_input("Umbral CR4 (%)", min_value=0.0, max_value=100.0, value=40.0, step=5.0)
@@ -872,44 +838,23 @@ with tab_judiciales:
         "pagos_sin_soporte_pct",
         "riesgo_score",
     ]
-    st.write(f"Casos que superan los umbrales: **{len(activas)}**")
     st.dataframe(activas[cols_alerta].head(25), hide_index=True, use_container_width=True)
 
-    st.divider()
-    st.subheader("Envío de alertas por Telegram")
-
-    if enviar_telegram is None:
-        st.info("Aún no está disponible el módulo `enviar_telegram.py` en el proyecto.")
-    elif not es_admin:
-        st.info(f"Solo el perfil Administrador puede disparar envíos desde aquí (estás como {rol}).")
-    else:
-        tipo = st.selectbox("Rol destinatario", ROLES_INSTITUCIONALES)
-        cantidad = st.slider("Alertas a enviar por persona", 1, 10, 3)
+    if enviar_telegram is not None and es_admin:
+        st.divider()
+        tipo = st.selectbox("Rol", ROLES_INSTITUCIONALES)
+        cantidad = st.slider("Alertas por contacto", 1, 10, 3)
 
         suscriptores_todos = leer_suscriptores()
         destinatarios = [p for p in suscriptores_todos if p.get("rol") == tipo and p.get("chat_id") and p.get("nombre")]
         elegidos = activas.head(cantidad)
 
-        st.write(f"Contactos en {tipo}: **{len(destinatarios)}** · Alertas listas: **{len(elegidos)}**")
-
         if len(elegidos) > 0:
-            st.dataframe(
-                elegidos[["entidad", "departamento", "nivel_alerta", "hhi_valor", "cr4_valor", "pagos_sin_soporte_pct"]],
-                hide_index=True,
-                use_container_width=True,
-            )
             ejemplo_nombre = destinatarios[0]["nombre"] if destinatarios else "Destinatario"
-            st.caption("Así se verá el mensaje:")
             st.code(armar_mensaje(elegidos.iloc[0], rol_destino=tipo, nombre_destino=ejemplo_nombre), language=None)
 
         if st.button("Enviar alertas"):
-            if not leer_secreto("TELEGRAM_TOKEN"):
-                st.warning("Falta configurar `TELEGRAM_TOKEN` en los secrets o en el entorno.")
-            elif len(destinatarios) == 0:
-                st.warning(f"No hay contactos con rol '{tipo}' configurados en `st.secrets['suscriptores']`.")
-            elif len(elegidos) == 0:
-                st.warning("No hay casos que cumplan los umbrales con los filtros actuales.")
-            else:
+            if leer_secreto("TELEGRAM_TOKEN") and destinatarios and len(elegidos) > 0:
                 enviadas = 0
                 fallidas = 0
                 total = len(destinatarios) * len(elegidos)
@@ -931,26 +876,4 @@ with tab_judiciales:
                         progreso.progress(min(paso / total, 1.0))
                         time.sleep(0.4)
 
-                st.success(f"Mensajes enviados: {enviadas} de {total}")
-                if fallidas > 0:
-                    st.warning(f"Hubo {fallidas} envíos sin confirmar; revisa el token o los `chat_id`.")
-
-
-# ----- 6. Red -----
-
-with tab_red:
-    st.subheader("Red y arquitectura")
-    st.caption("Esquema de conexión entre componentes, datos y servicios del proyecto.")
-    if os.path.exists("topologia_red.png"):
-        st.image("topologia_red.png", caption="Topología de red")
-    else:
-        st.info("Agrega `topologia_red.png` en la carpeta del proyecto cuando quieras mostrar el diagrama aquí.")
-
-
-# ----- 7. SECOP · Alertas -----
-
-with tab_secop:
-    if mostrar_dashboard_secop is None:
-        st.info("No se encontró `modulo_secop_original.py` para mostrar esta vista.")
-    else:
-        mostrar_dashboard_secop()
+                st.success(f"{enviadas}/{total}")
